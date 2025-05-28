@@ -1,0 +1,8 @@
+numpy
+matplotlib
+pandas
+pyserial
+pybaselines
+scikit-learn
+scipy
+streamlit
