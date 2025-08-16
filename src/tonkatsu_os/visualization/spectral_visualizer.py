@@ -5,7 +5,7 @@ This module provides beautiful, interactive visualizations for spectral data,
 analysis results, and database exploration using Plotly and Streamlit.
 """
 
-import streamlit as st
+# import streamlit as st  # Removed - using FastAPI now
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots

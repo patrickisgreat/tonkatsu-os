@@ -114,7 +114,7 @@ class RamanSpectralDatabase:
         Returns:
             int: Database ID of the added spectrum
         """
-        from preprocessing import AdvancedPreprocessor
+        from tonkatsu_os.preprocessing import AdvancedPreprocessor
         
         # Preprocess the spectrum
         preprocessor = AdvancedPreprocessor()
@@ -174,7 +174,7 @@ class RamanSpectralDatabase:
         Returns:
             List of dictionaries with spectrum info and similarity scores
         """
-        from preprocessing import AdvancedPreprocessor
+        from tonkatsu_os.preprocessing import AdvancedPreprocessor
         
         # Preprocess query spectrum
         preprocessor = AdvancedPreprocessor()
