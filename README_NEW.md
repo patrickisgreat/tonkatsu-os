@@ -34,19 +34,27 @@ A comprehensive, open-source Raman spectrometer control and AI-powered molecular
 ```bash
 git clone https://github.com/patrickisgreat/tonkatsu-os.git
 cd tonkatsu-os
-pip install -r requirements.txt
+
+# Set up development environment (installs all dependencies)
+make setup
 ```
 
 ### 2. Launch the Application
 ```bash
-streamlit run main.py
+# Start both backend and frontend
+make dev
+
+# Or start individually:
+make dev-backend  # FastAPI backend on http://localhost:8000
+make dev-frontend # React frontend on http://localhost:3000
 ```
 
 ### 3. Get Started
-1. **Demo Mode**: Use synthetic spectra to explore features without hardware
-2. **Build Database**: Download RRUFF data or generate synthetic training data
-3. **Train Models**: Use the ML training interface to build identification models
-4. **Analyze Spectra**: Start identifying molecular samples!
+1. **🌐 Open http://localhost:3000** - Modern React interface
+2. **📊 Dashboard**: View database stats and system status  
+3. **📥 Import Data**: Upload files or auto-download RRUFF spectra
+4. **🔬 Analyze**: AI-powered molecular identification
+5. **🤖 Train Models**: Build custom ML classifiers
 
 ## 🏗️ System Architecture
 
