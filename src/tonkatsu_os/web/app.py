@@ -4,7 +4,7 @@ import serial
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import streamlit as st
+# import streamlit as st  # Removed - using FastAPI now
 import os
 import logging
 from pathlib import Path

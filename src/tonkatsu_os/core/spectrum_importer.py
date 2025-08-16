@@ -7,7 +7,7 @@ for various file formats, batch processing, and interactive validation.
 
 import pandas as pd
 import numpy as np
-import streamlit as st
+# import streamlit as st  # Removed - using FastAPI now
 import io
 import json
 import re
