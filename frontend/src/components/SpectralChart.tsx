@@ -98,14 +98,16 @@ export const SpectralChart: React.FC<SpectralChartProps> = ({
       // Peak markers
       ...(showPeaks && peaks.length > 0 ? [{
         label: 'Peaks',
-        data: peaks.map(peakIdx => ({
-          x: xAxisData[peakIdx].toFixed(0),
-          y: spectrumData[peakIdx]
-        })),
+        data: xAxisData.map((_, i) => {
+          const isPeak = peaks.includes(i)
+          return isPeak ? spectrumData[i] : null
+        }),
         borderColor: 'rgb(239, 68, 68)', // red-500
         backgroundColor: 'rgba(239, 68, 68, 0.8)',
         borderWidth: 0,
-        pointRadius: 6,
+        pointRadius: (context: any) => {
+          return peaks.includes(context.dataIndex) ? 6 : 0
+        },
         pointHoverRadius: 8,
         showLine: false,
         pointStyle: 'triangle' as const,
@@ -249,22 +251,22 @@ export const SpectralChart: React.FC<SpectralChartProps> = ({
       <Line data={chartData} options={chartOptions} />
       
       {/* Spectrum Statistics */}
-      <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-        <div className="bg-gray-50 p-3 rounded-lg">
+      <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm relative z-10">
+        <div className="bg-white border p-3 rounded-lg shadow-sm">
           <div className="font-medium text-gray-700">Data Points</div>
           <div className="text-lg font-bold text-gray-900">{spectrumData.length}</div>
         </div>
-        <div className="bg-gray-50 p-3 rounded-lg">
+        <div className="bg-white border p-3 rounded-lg shadow-sm">
           <div className="font-medium text-gray-700">Max Intensity</div>
           <div className="text-lg font-bold text-gray-900">{Math.max(...spectrumData).toFixed(3)}</div>
         </div>
-        <div className="bg-gray-50 p-3 rounded-lg">
+        <div className="bg-white border p-3 rounded-lg shadow-sm">
           <div className="font-medium text-gray-700">Mean Intensity</div>
           <div className="text-lg font-bold text-gray-900">
             {(spectrumData.reduce((a, b) => a + b, 0) / spectrumData.length).toFixed(3)}
           </div>
         </div>
-        <div className="bg-gray-50 p-3 rounded-lg">
+        <div className="bg-white border p-3 rounded-lg shadow-sm">
           <div className="font-medium text-gray-700">Peaks Found</div>
           <div className="text-lg font-bold text-gray-900">{peaks.length}</div>
         </div>
@@ -272,11 +274,11 @@ export const SpectralChart: React.FC<SpectralChartProps> = ({
 
       {/* Peak List */}
       {showPeaks && peaks.length > 0 && (
-        <div className="mt-4 bg-white border rounded-lg p-4">
-          <h4 className="font-medium text-gray-900 mb-2">Identified Peaks</h4>
+        <div className="mt-4 bg-white border rounded-lg p-4 shadow-sm relative z-10">
+          <h4 className="font-medium text-gray-900 mb-3">Identified Peaks</h4>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 text-sm">
             {peaks.slice(0, 10).map((peakIdx, index) => (
-              <div key={index} className="bg-red-50 p-2 rounded text-center">
+              <div key={index} className="bg-red-50 border border-red-200 p-2 rounded text-center">
                 <div className="font-medium text-red-800">
                   {xAxisData[peakIdx].toFixed(0)} cm⁻¹
                 </div>

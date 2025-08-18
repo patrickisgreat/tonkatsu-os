@@ -104,8 +104,8 @@ async def get_spectrum(spectrum_id: str, db=Depends(get_database)):
             peak_intensities=spectrum_data["peak_intensities"].tolist()
             if spectrum_data["peak_intensities"] is not None
             else None,
-            laser_wavelength=spectrum_data["laser_wavelength"],
-            integration_time=spectrum_data["integration_time"],
+            laser_wavelength=spectrum_data.get("laser_wavelength"),
+            integration_time=spectrum_data.get("integration_time"),
             acquisition_date=spectrum_data["acquisition_date"],
             source=_extract_source_from_metadata(spectrum_data.get("metadata")),
             measurement_conditions=spectrum_data.get("measurement_conditions"),
@@ -149,8 +149,8 @@ async def search_spectra(
                     peak_intensities=spectrum_data["peak_intensities"].tolist()
                     if spectrum_data["peak_intensities"] is not None
                     else None,
-                    laser_wavelength=spectrum_data["laser_wavelength"],
-                    integration_time=spectrum_data["integration_time"],
+                    laser_wavelength=spectrum_data.get("laser_wavelength"),
+                    integration_time=spectrum_data.get("integration_time"),
                     acquisition_date=spectrum_data["acquisition_date"],
                     source=_extract_source_from_metadata(spectrum_data.get("metadata")),
                     measurement_conditions=spectrum_data.get("measurement_conditions"),

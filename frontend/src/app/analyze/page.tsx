@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { api } from '@/utils/api'
+import { SpectralChart } from '@/components/SpectralChart'
 
 interface HardwareStatus {
   connected: boolean;
@@ -19,6 +20,7 @@ interface Port {
 
 export default function AnalyzePage() {
   const [spectrumData, setSpectrumData] = useState<string>('')
+  const [analyzedSpectrumData, setAnalyzedSpectrumData] = useState<number[]>([])
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [hardwareStatus, setHardwareStatus] = useState<HardwareStatus | null>(null)
@@ -124,6 +126,9 @@ export default function AnalyzePage() {
   const analyzeSpectrum = async (data: number[]) => {
     setLoading(true)
     try {
+      // Store the spectrum data for visualization
+      setAnalyzedSpectrumData(data)
+      
       // Include analysis configuration in the request
       const analysisResult = await api.analyzeSpectrum(data, analysisConfig)
       setResult(analysisResult)
@@ -500,6 +505,21 @@ export default function AnalyzePage() {
                     Confidence: {(result.confidence * 100).toFixed(1)}%
                   </p>
                 </div>
+
+                {/* Spectral Chart */}
+                {analyzedSpectrumData.length > 0 && (
+                  <div className="bg-white border rounded-lg p-4">
+                    <h4 className="font-medium text-gray-900 mb-4">Analyzed Spectrum</h4>
+                    <SpectralChart
+                      spectrumData={analyzedSpectrumData}
+                      compoundName={result.predicted_compound}
+                      showPeaks={true}
+                      height={400}
+                      color="rgb(34, 197, 94)"
+                      backgroundColor="rgba(34, 197, 94, 0.05)"
+                    />
+                  </div>
+                )}
                 
                 <div>
                   <h4 className="font-medium text-gray-900 mb-2">Individual Model Predictions:</h4>

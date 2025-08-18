@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/utils/api'
 import { DatabaseStats, Spectrum } from '@/types/spectrum'
+import { SpectralChart } from '@/components/SpectralChart'
 
 export default function DatabasePage() {
   const [searchQuery, setSearchQuery] = useState('')
@@ -377,10 +378,10 @@ export default function DatabasePage() {
       {/* Spectrum View Modal */}
       {showSpectrumModal && selectedSpectrum && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
-            <div className="flex items-start justify-between mb-4">
+          <div className="relative top-10 mx-auto p-6 border w-11/12 md:w-5/6 lg:w-4/5 xl:w-3/4 max-w-6xl shadow-lg rounded-md bg-white max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between mb-6">
               <div>
-                <h3 className="text-lg font-bold text-gray-900">
+                <h3 className="text-xl font-bold text-gray-900">
                   {selectedSpectrum.compound_name}
                 </h3>
                 {selectedSpectrum.chemical_formula && (
@@ -399,53 +400,99 @@ export default function DatabasePage() {
               </button>
             </div>
             
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="font-medium text-gray-700">ID:</span>
-                  <span className="ml-2">{selectedSpectrum.id}</span>
+            <div className="space-y-6">
+              {/* Spectral Chart */}
+              {selectedSpectrum.spectrum_data && selectedSpectrum.spectrum_data.length > 0 && (
+                <div className="bg-white border rounded-lg p-4 relative overflow-hidden">
+                  <SpectralChart
+                    spectrumData={selectedSpectrum.spectrum_data}
+                    compoundName={selectedSpectrum.compound_name}
+                    showPeaks={true}
+                    height={500}
+                    color="rgb(59, 130, 246)"
+                    backgroundColor="rgba(59, 130, 246, 0.05)"
+                  />
                 </div>
-                <div>
-                  <span className="font-medium text-gray-700">Source:</span>
-                  <span className="ml-2">{selectedSpectrum.source}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700">Data Points:</span>
-                  <span className="ml-2">{selectedSpectrum.spectrum_data?.length || 0}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700">Laser Wavelength:</span>
-                  <span className="ml-2">{selectedSpectrum.laser_wavelength || 'N/A'}nm</span>
-                </div>
-                {selectedSpectrum.cas_number && (
-                  <div className="col-span-2">
-                    <span className="font-medium text-gray-700">CAS Number:</span>
-                    <span className="ml-2">{selectedSpectrum.cas_number}</span>
+              )}
+
+              {/* Spectrum Metadata */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-20">
+                <div className="bg-gray-50 rounded-lg p-4 min-h-[200px] relative z-20">
+                  <h4 className="font-medium text-gray-900 mb-4">Spectrum Information</h4>
+                  <div className="space-y-3 text-sm">
+                    <div className="grid grid-cols-2 gap-2">
+                      <span className="font-medium text-gray-700">ID:</span>
+                      <span className="text-gray-900 break-all">{selectedSpectrum.id}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <span className="font-medium text-gray-700">Source:</span>
+                      <span className="text-gray-900 break-words">{selectedSpectrum.source}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <span className="font-medium text-gray-700">Data Points:</span>
+                      <span className="text-gray-900">{selectedSpectrum.spectrum_data?.length || 0}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <span className="font-medium text-gray-700">Laser Wavelength:</span>
+                      <span className="text-gray-900">{selectedSpectrum.laser_wavelength || 'N/A'}nm</span>
+                    </div>
+                    {selectedSpectrum.integration_time && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <span className="font-medium text-gray-700">Integration Time:</span>
+                        <span className="text-gray-900">{selectedSpectrum.integration_time}ms</span>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <span className="font-medium text-gray-700">Acquisition Date:</span>
+                      <span className="text-gray-900 text-xs">
+                        {new Date(selectedSpectrum.acquisition_date).toLocaleDateString()}
+                      </span>
+                    </div>
                   </div>
-                )}
+                </div>
+
+                <div className="bg-gray-50 rounded-lg p-4 min-h-[200px] relative z-20">
+                  <h4 className="font-medium text-gray-900 mb-4">Chemical Information</h4>
+                  <div className="space-y-3 text-sm">
+                    <div className="grid grid-cols-2 gap-2">
+                      <span className="font-medium text-gray-700">Compound:</span>
+                      <span className="text-gray-900 break-words">{selectedSpectrum.compound_name}</span>
+                    </div>
+                    {selectedSpectrum.chemical_formula && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <span className="font-medium text-gray-700">Formula:</span>
+                        <span className="text-gray-900 font-mono text-xs break-all">{selectedSpectrum.chemical_formula}</span>
+                      </div>
+                    )}
+                    {selectedSpectrum.cas_number && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <span className="font-medium text-gray-700">CAS Number:</span>
+                        <span className="text-gray-900 font-mono text-xs">{selectedSpectrum.cas_number}</span>
+                      </div>
+                    )}
+                    {selectedSpectrum.measurement_conditions && (
+                      <div className="space-y-1">
+                        <span className="font-medium text-gray-700 block">Conditions:</span>
+                        <p className="text-gray-900 text-xs leading-relaxed break-words">{selectedSpectrum.measurement_conditions}</p>
+                      </div>
+                    )}
+                    {selectedSpectrum.metadata?.pharmaceutical_use && (
+                      <div className="space-y-1">
+                        <span className="font-medium text-gray-700 block">Pharmaceutical Use:</span>
+                        <p className="text-gray-900 text-xs leading-relaxed break-words capitalize">
+                          {selectedSpectrum.metadata.pharmaceutical_use}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {selectedSpectrum.measurement_conditions && (
-                <div>
-                  <span className="font-medium text-gray-700">Conditions:</span>
-                  <p className="text-sm text-gray-600 mt-1">{selectedSpectrum.measurement_conditions}</p>
-                </div>
-              )}
-
-              {selectedSpectrum.spectrum_data && selectedSpectrum.spectrum_data.length > 0 && (
-                <div>
-                  <span className="font-medium text-gray-700">Spectrum Data Preview:</span>
-                  <div className="mt-2 p-2 bg-gray-100 rounded text-xs font-mono max-h-32 overflow-y-auto">
-                    {selectedSpectrum.spectrum_data.slice(0, 50).join(', ')}
-                    {selectedSpectrum.spectrum_data.length > 50 && '...'}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end space-x-3 mt-6">
+              {/* Action Buttons */}
+              <div className="flex justify-end space-x-3 pt-4 border-t">
                 <button
                   onClick={() => setShowSpectrumModal(false)}
-                  className="px-4 py-2 text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
+                  className="px-6 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Close
                 </button>
@@ -454,7 +501,7 @@ export default function DatabasePage() {
                     handleAnalyzeSpectrum(selectedSpectrum)
                     setShowSpectrumModal(false)
                   }}
-                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Analyze This Spectrum
                 </button>

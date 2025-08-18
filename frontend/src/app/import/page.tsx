@@ -80,7 +80,7 @@ export default function ImportPage() {
   const downloadPharmaceuticalData = async () => {
     setImportStatus('Downloading pharmaceutical database...')
     try {
-      await api.downloadPharmaceuticalData(10)
+      await api.downloadPharmaceuticalData(50)
       setImportStatus('✅ Pharmaceutical database downloaded successfully!')
     } catch (error) {
       console.error('Pharmaceutical download failed:', error)
@@ -201,7 +201,7 @@ export default function ImportPage() {
                 onClick={downloadPharmaceuticalData}
                 className="btn-primary mt-3"
               >
-                Download Pharma Spectra (10)
+                Download Pharma Spectra (50)
               </button>
             </div>
             

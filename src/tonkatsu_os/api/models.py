@@ -46,8 +46,8 @@ class SpectrumResponse(BaseModel):
     preprocessed_spectrum: Optional[List[float]]
     peak_positions: Optional[List[int]]
     peak_intensities: Optional[List[float]]
-    laser_wavelength: float
-    integration_time: float
+    laser_wavelength: Optional[float]
+    integration_time: Optional[float]
     acquisition_date: datetime
     source: str
     measurement_conditions: Optional[str]
@@ -101,6 +101,14 @@ class AnalysisResult(BaseModel):
     individual_predictions: IndividualPredictions
     confidence_analysis: ConfidenceAnalysis
     processing_time: float
+    
+    # New fields for enhanced workflow
+    method: Optional[str] = Field(None, description="Analysis method used (database_similarity, external_api_nist, etc.)")
+    database_matches_found: Optional[int] = Field(None, description="Number of database matches found")
+    similarity_threshold_used: Optional[float] = Field(None, description="Similarity threshold used for database search")
+    fallback_reason: Optional[str] = Field(None, description="Reason for using fallback method")
+    database_match_details: Optional[Dict[str, Any]] = Field(None, description="Details of database matches")
+    external_api_details: Optional[Dict[str, Any]] = Field(None, description="Details of external API calls")
 
 
 # Database models
