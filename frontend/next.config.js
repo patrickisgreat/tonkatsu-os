@@ -1,13 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
+  // experimental: {
+  //   appDir: true, // No longer needed in Next.js 14
+  // },
   async rewrites() {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8000/api/:path*', // FastAPI backend
+        destination: 'http://127.0.0.1:8000/api/:path*', // FastAPI backend
       },
     ]
   },

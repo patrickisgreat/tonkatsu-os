@@ -243,18 +243,25 @@ python3 test_mvp.py
 
 ### 1. Launch the Platform
 
+**Option A: Easy Single Command**
+```bash
+# One-click development startup (recommended)
+./start_dev.sh
+```
+
+**Option B: Manual Startup**
 ```bash
 # Start both backend and frontend
 make dev
 
 # Or start services individually:
 make dev-backend   # FastAPI server (http://localhost:8000)
-make dev-frontend  # React app (http://localhost:3000)
+make dev-frontend  # React app (http://localhost:3001)
 ```
 
 ### 2. Access the Interface
 
-- **🌐 Main Application**: [http://localhost:3000](http://localhost:3000)
+- **🌐 Main Application**: [http://localhost:3001](http://localhost:3001)
 - **🔧 API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **💓 Health Check**: [http://localhost:8000/api/health](http://localhost:8000/api/health)
 

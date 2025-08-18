@@ -157,7 +157,7 @@ export const api = {
     const response = await apiClient.get(`/system/export/${format}`, {
       responseType: 'blob'
     })
-    return response
+    return response.data
   },
 
   // Utility functions

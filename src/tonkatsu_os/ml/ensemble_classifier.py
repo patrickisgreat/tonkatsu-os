@@ -12,6 +12,8 @@ from typing import Dict, List, Tuple, Optional
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.multiclass import OneVsRestClassifier
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -28,15 +30,17 @@ class EnsembleClassifier:
     molecular identification from Raman spectra.
     """
     
-    def __init__(self, use_pca: bool = True, n_components: int = 50):
+    def __init__(self, use_pca: bool = True, n_components: int = 50, use_pls: bool = True):
         """
         Initialize ensemble classifier.
         
         Args:
             use_pca: Whether to use PCA for dimensionality reduction
             n_components: Number of PCA components
+            use_pls: Whether to include PLS regression in ensemble (NIPALS algorithm)
         """
         self.use_pca = use_pca
+        self.use_pls = use_pls
         self.n_components = n_components
         self.scaler = StandardScaler()
         self.pca = PCA(n_components=n_components) if use_pca else None
@@ -69,6 +73,16 @@ class EnsembleClassifier:
             max_iter=500,
             random_state=42
         )
+        
+        # PLS model (NIPALS algorithm) - excellent for spectroscopic data with multicollinearity
+        self.pls_model = None
+        if use_pls:
+            self.pls_model = OneVsRestClassifier(
+                PLSRegression(
+                    n_components=min(15, n_components),  # Typically fewer components needed for PLS
+                    scale=False  # We handle scaling separately
+                )
+            )
         
         # Ensemble model
         self.ensemble_model = None
@@ -140,14 +154,23 @@ class EnsembleClassifier:
         logger.info("Training Neural Network...")
         self.nn_model.fit(X_train_processed, y_train)
         
+        if self.use_pls:
+            logger.info("Training PLS Regression (NIPALS algorithm)...")
+            self.pls_model.fit(X_train_processed, y_train)
+        
         # Create calibrated ensemble
         logger.info("Creating ensemble model...")
+        estimators = [
+            ('rf', self.rf_model),
+            ('svm', self.svm_model),
+            ('nn', self.nn_model)
+        ]
+        
+        if self.use_pls:
+            estimators.append(('pls', self.pls_model))
+            
         self.ensemble_model = VotingClassifier(
-            estimators=[
-                ('rf', self.rf_model),
-                ('svm', self.svm_model),
-                ('nn', self.nn_model)
-            ],
+            estimators=estimators,
             voting='soft'
         )
         
@@ -184,6 +207,10 @@ class EnsembleClassifier:
             'n_classes': len(self.class_names)
         }
         
+        if self.use_pls:
+            pls_acc = accuracy_score(y_val, self.pls_model.predict(X_val_processed))
+            results['pls_accuracy'] = pls_acc
+        
         logger.info(f"Training completed. Ensemble accuracy: {ensemble_acc:.3f}")
         return results
     
@@ -216,6 +243,12 @@ class EnsembleClassifier:
         nn_pred = self.nn_model.predict(X_processed)
         nn_proba = self.nn_model.predict_proba(X_processed)
         
+        pls_pred = None
+        pls_proba = None
+        if self.use_pls:
+            pls_pred = self.pls_model.predict(X_processed)
+            pls_proba = self.pls_model.predict_proba(X_processed)
+        
         results = []
         for i in range(len(X)):
             # Ensemble prediction
@@ -235,6 +268,8 @@ class EnsembleClassifier:
             
             # Model agreement
             individual_preds = [rf_pred[i], svm_pred[i], nn_pred[i]]
+            if self.use_pls:
+                individual_preds.append(pls_pred[i])
             agreement = np.mean(np.array(individual_preds) == pred_class_idx)
             
             # Uncertainty quantification
@@ -242,7 +277,7 @@ class EnsembleClassifier:
             max_entropy = np.log(len(self.class_names))
             uncertainty = entropy / max_entropy
             
-            results.append({
+            result = {
                 'predicted_compound': pred_class,
                 'confidence': confidence,
                 'uncertainty': uncertainty,
@@ -262,7 +297,16 @@ class EnsembleClassifier:
                         'confidence': np.max(nn_proba[i])
                     }
                 }
-            })
+            }
+            
+            # Add PLS predictions if enabled  
+            if self.use_pls:
+                result['individual_predictions']['pls_regression'] = {
+                    'compound': self.class_names[pls_pred[i]],
+                    'confidence': np.max(pls_proba[i])
+                }
+            
+            results.append(result)
         
         return results
     
