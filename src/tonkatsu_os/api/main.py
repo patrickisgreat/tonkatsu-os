@@ -3,7 +3,9 @@ FastAPI main application for Tonkatsu-OS backend.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +16,27 @@ from tonkatsu_os import __version__
 
 from .models import SystemHealth
 from .routes import acquisition, analysis, database, import_data, system, training
+
+# Load environment variables from .env file
+def load_env_file():
+    """Load environment variables from .env file if it exists."""
+    env_file = Path(".env")
+    if env_file.exists():
+        try:
+            with open(env_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        # Remove quotes if present
+                        value = value.strip('"\'')
+                        os.environ[key.strip()] = value
+            logger.info("Loaded environment variables from .env file")
+        except Exception as e:
+            logger.warning(f"Failed to load .env file: {e}")
+
+# Load .env file on startup
+load_env_file()
 
 logger = logging.getLogger(__name__)
 

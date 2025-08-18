@@ -66,17 +66,26 @@ async def train_models(
         if config is None:
             config = TrainingConfig()
 
-        # Start training in background
+        # Start REAL training in background
         background_tasks.add_task(_train_models_background, config, db, classifier)
 
         training_state["is_training"] = True
         training_state["progress"] = 0.0
 
-        # Return mock training results for now
-        # In production, this would wait for actual training to complete
-        mock_result = _create_mock_training_result()
-
-        return TrainingResult(**mock_result)
+        # Return immediate response - training runs in background
+        return TrainingResult(
+            rf_accuracy=0.0,  # Will be updated when training completes
+            svm_accuracy=0.0,
+            nn_accuracy=0.0,
+            ensemble_accuracy=0.0,
+            n_train_samples=0,
+            n_val_samples=0,
+            n_features=0,
+            n_classes=0,
+            classification_report={},
+            confusion_matrix=[],
+            training_time=0.0
+        )
 
     except HTTPException:
         raise
@@ -178,36 +187,203 @@ async def delete_model():
 
 
 async def _train_models_background(config: TrainingConfig, db, classifier):
-    """Background task for model training."""
+    """Background task for REAL model training."""
     try:
-        import time
+        import numpy as np
         from datetime import datetime
+        from tonkatsu_os.preprocessing import AdvancedPreprocessor
 
-        logger.info("Starting background model training...")
-
-        # Simulate training progress
-        for i in range(10):
-            time.sleep(1)  # Simulate work
-            training_state["progress"] = (i + 1) / 10
-            logger.info(f"Training progress: {training_state['progress']:.1%}")
-
-        # In production, this would do actual training:
-        # 1. Load data from database
-        # 2. Extract features
-        # 3. Train ensemble models
-        # 4. Save trained model
-
-        training_state["is_training"] = False
+        logger.info("Starting REAL model training...")
+        
+        # Step 1: Load all spectra from database (20% progress)
+        training_state["progress"] = 0.1
+        logger.info("Loading spectra from database...")
+        
+        spectra_data = _load_training_data_from_database(db)
+        if len(spectra_data) < 10:
+            raise ValueError(f"Need at least 10 spectra for training. Found: {len(spectra_data)}")
+        
+        training_state["progress"] = 0.2
+        logger.info(f"Loaded {len(spectra_data)} spectra from database")
+        
+        # Step 2: Extract features from all spectra (40% progress)
+        training_state["progress"] = 0.3
+        logger.info("Extracting spectral features...")
+        
+        X, y, feature_names = _extract_features_for_training(spectra_data)
+        
+        training_state["progress"] = 0.4
+        logger.info(f"Extracted {X.shape[1]} features from {X.shape[0]} spectra")
+        
+        # Step 3: Configure classifier with user settings
+        training_state["progress"] = 0.5
+        logger.info("Configuring ensemble classifier...")
+        
+        classifier = _configure_classifier(config)
+        
+        # Step 4: Train the ensemble model (60-90% progress)
+        training_state["progress"] = 0.6
+        logger.info("Training ensemble models...")
+        
+        training_results = classifier.train(X, y, validation_split=config.validation_split)
+        
+        training_state["progress"] = 0.9
+        logger.info("Training completed, saving model...")
+        
+        # Step 5: Save trained model (100% progress)
+        model_path = "trained_ensemble_model.pkl"
+        classifier.save_model(model_path)
+        
         training_state["progress"] = 1.0
+        training_state["is_training"] = False
         training_state["model_exists"] = True
         training_state["last_trained"] = datetime.now()
-
-        logger.info("Background training completed")
+        
+        logger.info(f"Model training completed successfully! Saved to {model_path}")
+        logger.info(f"Training results: {training_results}")
+        
+        return training_results
 
     except Exception as e:
-        logger.error(f"Background training failed: {e}")
+        logger.error(f"REAL training failed: {e}")
         training_state["is_training"] = False
         training_state["progress"] = 0.0
+        raise
+
+
+def _load_training_data_from_database(db) -> list:
+    """Load all spectra from database for training."""
+    try:
+        # Get all spectra from database
+        stats = db.get_database_stats()
+        logger.info(f"Database contains {stats['total_spectra']} total spectra")
+        
+        # Load all spectra data
+        # This should be implemented in the database class
+        all_spectra = []
+        
+        # For now, use search to get all compounds
+        for compound_name, count in stats.get('top_compounds', []):
+            compound_spectra = db.search_by_compound_name(compound_name, exact_match=True)
+            for spectrum_basic in compound_spectra:
+                # Get full spectrum data including spectrum_data array
+                full_spectrum = db.get_spectrum_by_id(spectrum_basic['id'])
+                if full_spectrum and full_spectrum.get('spectrum_data') is not None:
+                    all_spectra.append(full_spectrum)
+        
+        logger.info(f"Successfully loaded {len(all_spectra)} spectra for training")
+        return all_spectra
+        
+    except Exception as e:
+        logger.error(f"Failed to load training data: {e}")
+        raise
+
+
+def _extract_features_for_training(spectra_data: list):
+    """Extract ML features from spectral data."""
+    try:
+        from tonkatsu_os.preprocessing import AdvancedPreprocessor
+        import numpy as np
+        
+        preprocessor = AdvancedPreprocessor()
+        
+        features_list = []
+        labels = []
+        
+        for spectrum_data in spectra_data:
+            try:
+                # Get spectrum array
+                spectrum_array = np.array(spectrum_data['spectrum_data'])
+                compound_name = spectrum_data['compound_name']
+                
+                # Preprocess spectrum
+                processed_spectrum = preprocessor.preprocess(spectrum_array)
+                
+                # Extract spectral features
+                features = preprocessor.spectral_features(processed_spectrum)
+                
+                # Convert features dict to array
+                feature_vector = []
+                feature_vector.extend([
+                    features.get('spectral_centroid', 0),
+                    features.get('spectral_spread', 0),
+                    features.get('spectral_skewness', 0),
+                    features.get('spectral_kurtosis', 0),
+                    features.get('spectral_rolloff', 0),
+                    features.get('spectral_flatness', 0),
+                    features.get('zero_crossing_rate', 0),
+                    features.get('num_peaks', 0),
+                    features.get('peak_density', 0),
+                    features.get('dominant_peak_intensity', 0),
+                    features.get('mean_intensity', 0),
+                    features.get('std_intensity', 0),
+                    features.get('max_intensity', 0),
+                    features.get('min_intensity', 0)
+                ])
+                
+                # Add statistical moments
+                feature_vector.extend([
+                    np.mean(processed_spectrum),
+                    np.std(processed_spectrum),
+                    np.median(processed_spectrum),
+                    np.percentile(processed_spectrum, 25),
+                    np.percentile(processed_spectrum, 75),
+                    np.max(processed_spectrum),
+                    np.min(processed_spectrum)
+                ])
+                
+                # Add spectral bins (simplified - take every 50th point)
+                spectrum_bins = processed_spectrum[::50]  # Sample spectrum
+                feature_vector.extend(spectrum_bins.tolist())
+                
+                features_list.append(feature_vector)
+                labels.append(compound_name)
+                
+            except Exception as e:
+                logger.warning(f"Failed to extract features for spectrum {spectrum_data.get('id', 'unknown')}: {e}")
+                continue
+        
+        if not features_list:
+            raise ValueError("No valid features extracted from spectra")
+        
+        X = np.array(features_list)
+        y = np.array(labels)
+        
+        # Feature names for interpretability
+        feature_names = [
+            'spectral_centroid', 'spectral_spread', 'spectral_skewness', 'spectral_kurtosis',
+            'spectral_rolloff', 'spectral_flatness', 'zero_crossing_rate', 'num_peaks',
+            'peak_density', 'dominant_peak_intensity', 'mean_intensity', 'std_intensity',
+            'max_intensity', 'min_intensity', 'mean_spectrum', 'std_spectrum', 'median_spectrum',
+            'q25_spectrum', 'q75_spectrum', 'max_spectrum', 'min_spectrum'
+        ]
+        
+        # Add spectral bin names
+        bin_names = [f'spectrum_bin_{i}' for i in range(X.shape[1] - len(feature_names))]
+        feature_names.extend(bin_names)
+        
+        logger.info(f"Extracted {X.shape[1]} features from {X.shape[0]} spectra")
+        logger.info(f"Unique compounds: {len(np.unique(y))}")
+        
+        return X, y, feature_names
+        
+    except Exception as e:
+        logger.error(f"Feature extraction failed: {e}")
+        raise
+
+
+def _configure_classifier(config: TrainingConfig):
+    """Configure ensemble classifier with user settings."""
+    from tonkatsu_os.ml import EnsembleClassifier
+    
+    classifier = EnsembleClassifier(
+        use_pca=config.use_pca,
+        n_components=config.n_components,
+        use_pls=True  # Always include PLS for spectroscopic data
+    )
+    
+    logger.info(f"Configured classifier: PCA={config.use_pca}, n_components={config.n_components}")
+    return classifier
 
 
 def _create_mock_training_result() -> dict:
