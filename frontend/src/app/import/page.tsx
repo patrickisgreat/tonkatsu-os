@@ -1,17 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { api } from '@/utils/api'
 
 export default function ImportPage() {
   const [dragActive, setDragActive] = useState(false)
   const [importStatus, setImportStatus] = useState<string>('')
-
-  const { data: formats } = useQuery({
-    queryKey: ['import-formats'],
-    queryFn: () => api.getImportFormats()
-  })
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -51,13 +45,46 @@ export default function ImportPage() {
   }
 
   const downloadRRUFF = async () => {
-    setImportStatus('Downloading RRUFF database...')
+    setImportStatus('Downloading RRUFF Raman database...')
     try {
-      await api.downloadRRUFF({ max_spectra: 50 })
-      setImportStatus('✅ RRUFF database downloaded successfully!')
+      await api.downloadRRUFFData(50)
+      setImportStatus('✅ RRUFF Raman database downloaded successfully!')
     } catch (error) {
       console.error('RRUFF download failed:', error)
       setImportStatus('❌ RRUFF download failed. Please try again.')
+    }
+  }
+
+  const downloadRRUFFChemistry = async () => {
+    setImportStatus('Downloading RRUFF chemistry database...')
+    try {
+      await api.downloadRRUFFChemistryData(25)
+      setImportStatus('✅ RRUFF chemistry database downloaded successfully!')
+    } catch (error) {
+      console.error('RRUFF chemistry download failed:', error)
+      setImportStatus('❌ RRUFF chemistry download failed. Please try again.')
+    }
+  }
+
+  const downloadRRUFFInfrared = async () => {
+    setImportStatus('Downloading RRUFF infrared database...')
+    try {
+      await api.downloadRRUFFInfraredData(25)
+      setImportStatus('✅ RRUFF infrared database downloaded successfully!')
+    } catch (error) {
+      console.error('RRUFF infrared download failed:', error)
+      setImportStatus('❌ RRUFF infrared download failed. Please try again.')
+    }
+  }
+
+  const downloadPharmaceuticalData = async () => {
+    setImportStatus('Downloading pharmaceutical database...')
+    try {
+      await api.downloadPharmaceuticalData(50)
+      setImportStatus('✅ Pharmaceutical database downloaded successfully!')
+    } catch (error) {
+      console.error('Pharmaceutical download failed:', error)
+      setImportStatus('❌ Pharmaceutical download failed. Please try again.')
     }
   }
 
@@ -106,7 +133,7 @@ export default function ImportPage() {
                     </label>
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    Supported formats: {formats?.supported_formats?.join(', ') || 'CSV, TXT, JSON'}
+                    Supported formats: CSV, TXT, JSON, XLSX
                   </p>
                 </div>
               </div>
@@ -127,15 +154,54 @@ export default function ImportPage() {
           </div>
           <div className="card-content space-y-4">
             <div className="border rounded-lg p-4">
-              <h3 className="font-medium text-gray-900">RRUFF Mineral Database</h3>
+              <h3 className="font-medium text-gray-900">RRUFF Raman Spectra</h3>
               <p className="text-sm text-gray-600 mt-1">
-                High-quality mineral Raman spectra from the RRUFF project
+                High-quality mineral Raman spectra from the RRUFF project (excellent oriented)
               </p>
               <button
                 onClick={downloadRRUFF}
                 className="btn-primary mt-3"
               >
-                Download RRUFF Spectra
+                Download Raman Spectra (50)
+              </button>
+            </div>
+
+            <div className="border rounded-lg p-4">
+              <h3 className="font-medium text-gray-900">RRUFF Chemistry Data</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Microprobe chemistry analysis data for mineral identification
+              </p>
+              <button
+                onClick={downloadRRUFFChemistry}
+                className="btn-secondary mt-3"
+              >
+                Download Chemistry Data (25)
+              </button>
+            </div>
+
+            <div className="border rounded-lg p-4">
+              <h3 className="font-medium text-gray-900">RRUFF Infrared Spectra</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Processed infrared spectroscopy data for mineral analysis
+              </p>
+              <button
+                onClick={downloadRRUFFInfrared}
+                className="btn-secondary mt-3"
+              >
+                Download IR Spectra (25)
+              </button>
+            </div>
+            
+            <div className="border rounded-lg p-4">
+              <h3 className="font-medium text-gray-900">Pharmaceutical Database</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Raman spectra of active pharmaceutical ingredients (APIs) from Springer Nature
+              </p>
+              <button
+                onClick={downloadPharmaceuticalData}
+                className="btn-primary mt-3"
+              >
+                Download Pharma Spectra (50)
               </button>
             </div>
             

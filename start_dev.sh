@@ -31,7 +31,7 @@ cd frontend && npm install && cd ..
 echo ""
 echo "🚀 Starting both backend and frontend..."
 echo "Backend:  http://localhost:8000"
-echo "Frontend: http://localhost:3001"
+echo "Frontend: http://localhost:3000"
 echo "API Docs: http://localhost:8000/docs"
 echo ""
 echo "Press Ctrl+C to stop both servers"
@@ -70,10 +70,10 @@ sleep 3
 echo ""
 echo "✅ Both servers are running!"
 echo "   Backend:  http://localhost:8000 (PID: $BACKEND_PID)"
-echo "   Frontend: http://localhost:3001 (PID: $FRONTEND_PID)"
+echo "   Frontend: http://localhost:3000 (PID: $FRONTEND_PID)"
 echo ""
 echo "👀 Watch this terminal for logs from both servers"
-echo "🔗 Open http://localhost:3001 in your browser to use the app"
+echo "🔗 Open http://localhost:3000 in your browser to use the app"
 
 # Wait for background processes
 wait $BACKEND_PID $FRONTEND_PID

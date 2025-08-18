@@ -13,6 +13,7 @@ export interface Spectrum {
   integration_time: number;
   acquisition_date: string;
   source: string;
+  measurement_conditions?: string;
   metadata?: Record<string, any>;
 }
 
