@@ -8,7 +8,7 @@ import {
   CpuChipIcon, 
   DocumentArrowUpIcon,
   EyeIcon,
-  DatabaseIcon
+  CircleStackIcon as DatabaseIcon
 } from '@heroicons/react/24/outline'
 import { motion } from 'framer-motion'
 import { api } from '@/utils/api'

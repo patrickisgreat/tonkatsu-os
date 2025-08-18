@@ -135,7 +135,9 @@ async def health_check():
                 "preprocessor": preprocessor_healthy,
                 "classifier": classifier_healthy,
             },
-            version=__version__
+            version=__version__,
+            uptime=None,
+            memory_usage=None
         )
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -146,7 +148,9 @@ async def health_check():
                 "preprocessor": False,
                 "classifier": False,
             },
-            version=__version__
+            version=__version__,
+            uptime=None,
+            memory_usage=None
         )
 
 # Dependency injection

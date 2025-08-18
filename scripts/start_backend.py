@@ -30,7 +30,7 @@ if __name__ == "__main__":
     print("=" * 50)
     
     uvicorn.run(
-        app,
+        "tonkatsu_os.api.main:app",
         host="0.0.0.0",
         port=8000,
         log_level="info",

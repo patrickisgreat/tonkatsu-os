@@ -62,6 +62,7 @@ class IndividualPredictions(BaseModel):
     random_forest: ModelPrediction
     svm: ModelPrediction
     neural_network: ModelPrediction
+    pls_regression: Optional[ModelPrediction] = None
 
 class ConfidenceComponents(BaseModel):
     probability_score: float
@@ -73,7 +74,7 @@ class ConfidenceComponents(BaseModel):
 class ConfidenceAnalysis(BaseModel):
     overall_confidence: float
     confidence_components: ConfidenceComponents
-    risk_level: str = Field(..., regex="^(low|medium|high)$")
+    risk_level: str = Field(..., pattern="^(low|medium|high)$")
     recommendation: str
 
 class AnalysisResult(BaseModel):
@@ -128,6 +129,7 @@ class TrainingResult(BaseModel):
     rf_accuracy: float
     svm_accuracy: float
     nn_accuracy: float
+    pls_accuracy: Optional[float] = None
     ensemble_accuracy: float
     n_train_samples: int
     n_val_samples: int
@@ -171,14 +173,14 @@ class DataIntegrationStatus(BaseModel):
 
 # System models
 class SystemHealth(BaseModel):
-    status: str = Field(..., regex="^(healthy|warning|error)$")
+    status: str = Field(..., pattern="^(healthy|warning|error)$")
     components: Dict[str, bool]
     version: str
     uptime: Optional[float]
     memory_usage: Optional[float]
 
 class ExportRequest(BaseModel):
-    format: str = Field(..., regex="^(csv|json|sqlite)$")
+    format: str = Field(..., pattern="^(csv|json|sqlite)$")
     include_metadata: bool = Field(True, description="Include metadata in export")
     compounds: Optional[List[str]] = Field(None, description="Specific compounds to export")
 
@@ -189,7 +191,7 @@ class PreprocessingOptions(BaseModel):
     normalize: bool = Field(True, description="Normalize spectrum")
     remove_spikes: bool = Field(True, description="Remove cosmic ray spikes")
     smoothing_window: int = Field(11, ge=5, le=21, description="Smoothing window size")
-    normalization_method: str = Field("minmax", regex="^(minmax|standard|l2|area)$")
+    normalization_method: str = Field("minmax", pattern="^(minmax|standard|l2|area)$")
 
 class PreprocessingRequest(BaseModel):
     spectrum_data: List[float]

@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { DatabaseIcon, BeakerIcon, CpuChipIcon, ChartBarIcon } from '@heroicons/react/24/outline'
+import { CircleStackIcon as DatabaseIcon, BeakerIcon, CpuChipIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 import { api } from '@/utils/api'
 import { DatabaseStats } from '@/types/spectrum'
 

@@ -15,14 +15,14 @@ from tonkatsu_os.database.raman_database import RamanSpectralDatabase
 from tonkatsu_os.preprocessing.advanced_preprocessor import AdvancedPreprocessor
 from tonkatsu_os.ml.ensemble_classifier import EnsembleClassifier
 from tonkatsu_os.core.spectrum_importer import SpectrumImporter
-from tonkatsu_os.visualization.spectral_visualizer import SpectralVisualizer
+# from tonkatsu_os.visualization.spectral_visualizer import SpectralVisualizer  # Temporarily disabled due to matplotlib issue
 
 __all__ = [
     "RamanSpectralDatabase",
     "AdvancedPreprocessor", 
     "EnsembleClassifier",
     "SpectrumImporter",
-    "SpectralVisualizer",
+    # "SpectralVisualizer",  # Temporarily disabled
     "__version__",
     "__author__",
     "__email__",
