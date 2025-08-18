@@ -55,9 +55,10 @@ export const api = {
   },
 
   // Analysis operations
-  async analyzeSpectrum(spectrumData: number[]): Promise<AnalysisResult> {
+  async analyzeSpectrum(spectrumData: number[], config?: any): Promise<AnalysisResult> {
     return apiClient.post('/analysis/analyze', {
-      spectrum_data: spectrumData
+      spectrum_data: spectrumData,
+      config: config
     })
   },
 
@@ -83,7 +84,7 @@ export const api = {
 
   async importBatch(files: File[], options: any): Promise<ImportResult> {
     const formData = new FormData()
-    files.forEach((file, index) => {
+    files.forEach((file) => {
       formData.append(`files`, file)
     })
     formData.append('options', JSON.stringify(options))
@@ -97,19 +98,51 @@ export const api = {
 
   // Public database integration
   async downloadRRUFFData(maxSpectra: number = 50): Promise<ImportResult> {
-    return apiClient.post('/data/rruff/download', {
+    return apiClient.post('/import/rruff/download', {
+      max_spectra: maxSpectra
+    })
+  },
+
+  async downloadNISTData(maxSpectra: number = 50, spectralType: string = 'raman'): Promise<ImportResult> {
+    return apiClient.post('/import/nist/download', {
+      max_spectra: maxSpectra,
+      spectral_type: spectralType
+    })
+  },
+
+  async downloadSpectralData(maxSpectra: number = 50, compoundClass?: string): Promise<ImportResult> {
+    return apiClient.post('/import/spectral/download', {
+      max_spectra: maxSpectra,
+      compound_class: compoundClass
+    })
+  },
+
+  async downloadRRUFFChemistryData(maxSpectra: number = 50): Promise<ImportResult> {
+    return apiClient.post('/import/rruff/chemistry/download', {
+      max_spectra: maxSpectra
+    })
+  },
+
+  async downloadRRUFFInfraredData(maxSpectra: number = 50): Promise<ImportResult> {
+    return apiClient.post('/import/rruff/infrared/download', {
+      max_spectra: maxSpectra
+    })
+  },
+
+  async downloadPharmaceuticalData(maxSpectra: number = 50): Promise<ImportResult> {
+    return apiClient.post('/import/pharmaceutical/download', {
       max_spectra: maxSpectra
     })
   },
 
   async generateSyntheticData(samplesPerCompound: number = 10): Promise<ImportResult> {
-    return apiClient.post('/data/synthetic/generate', {
+    return apiClient.post('/import/synthetic/generate', {
       samples_per_compound: samplesPerCompound
     })
   },
 
   async getRRUFFStatus(): Promise<{ available: boolean; last_update?: string; count: number }> {
-    return apiClient.get('/data/rruff/status')
+    return apiClient.get('/import/rruff/status')
   },
 
   // Training operations
@@ -140,8 +173,36 @@ export const api = {
     connected: boolean;
     port?: string;
     laser_status?: string;
+    temperature?: number;
+    last_communication?: string;
   }> {
     return apiClient.get('/acquisition/status')
+  },
+
+  async connectHardware(port?: string): Promise<ApiResponse<any>> {
+    return apiClient.post('/acquisition/connect', null, {
+      params: { port: port || '/dev/ttyUSB0' }
+    })
+  },
+
+  async disconnectHardware(): Promise<ApiResponse<any>> {
+    return apiClient.post('/acquisition/disconnect')
+  },
+
+  async scanPorts(): Promise<Array<{
+    device: string;
+    description: string;
+    hwid: string;
+  }>> {
+    return apiClient.get('/acquisition/ports')
+  },
+
+  async laserOn(): Promise<ApiResponse<any>> {
+    return apiClient.post('/acquisition/laser/on')
+  },
+
+  async laserOff(): Promise<ApiResponse<any>> {
+    return apiClient.post('/acquisition/laser/off')
   },
 
   // System operations

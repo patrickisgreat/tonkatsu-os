@@ -10,16 +10,18 @@ __author__ = "Patrick"
 __email__ = "patrick@tonkatsu-os.com"
 __description__ = "AI-powered Raman spectroscopy molecular identification platform"
 
+from tonkatsu_os.core.spectrum_importer import SpectrumImporter
+
 # Core imports for easy access
 from tonkatsu_os.database.raman_database import RamanSpectralDatabase
-from tonkatsu_os.preprocessing.advanced_preprocessor import AdvancedPreprocessor
 from tonkatsu_os.ml.ensemble_classifier import EnsembleClassifier
-from tonkatsu_os.core.spectrum_importer import SpectrumImporter
+from tonkatsu_os.preprocessing.advanced_preprocessor import AdvancedPreprocessor
+
 # from tonkatsu_os.visualization.spectral_visualizer import SpectralVisualizer  # Temporarily disabled due to matplotlib issue
 
 __all__ = [
     "RamanSpectralDatabase",
-    "AdvancedPreprocessor", 
+    "AdvancedPreprocessor",
     "EnsembleClassifier",
     "SpectrumImporter",
     # "SpectralVisualizer",  # Temporarily disabled

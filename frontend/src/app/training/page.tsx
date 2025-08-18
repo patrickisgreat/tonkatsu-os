@@ -22,7 +22,7 @@ export default function TrainingPage() {
   const startTraining = async () => {
     setIsTraining(true)
     try {
-      const result = await api.trainModel(trainingConfig)
+      const result = await api.trainModels(trainingConfig)
       console.log('Training result:', result)
       await refetchStatus()
     } catch (error) {
@@ -144,25 +144,17 @@ export default function TrainingPage() {
                   <div>
                     <div className="flex justify-between text-sm text-gray-700 mb-1">
                       <span>Progress</span>
-                      <span>{(status.progress * 100).toFixed(1)}%</span>
+                      <span>{((status.progress || 0) * 100).toFixed(1)}%</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div 
                         className="bg-primary-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${status.progress * 100}%` }}
+                        style={{ width: `${(status.progress || 0) * 100}%` }}
                       />
                     </div>
                   </div>
                 )}
 
-                {status.last_trained && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-700">Last Trained:</span>
-                    <span className="text-sm text-gray-600">
-                      {new Date(status.last_trained).toLocaleString()}
-                    </span>
-                  </div>
-                )}
               </div>
             ) : (
               <div className="text-center py-8 text-gray-500">
