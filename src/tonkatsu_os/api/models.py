@@ -5,7 +5,7 @@ Pydantic models for API request/response schemas.
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # Base response model
@@ -58,6 +58,9 @@ class SpectrumResponse(BaseModel):
 class AnalysisRequest(BaseModel):
     spectrum_data: List[float] = Field(..., description="Spectrum data to analyze")
     preprocess: bool = Field(True, description="Whether to preprocess the spectrum")
+    config: Optional[Dict[str, Any]] = Field(
+        None, description="Optional analysis configuration overrides"
+    )
 
 
 class PredictionResult(BaseModel):
@@ -71,18 +74,20 @@ class ModelPrediction(BaseModel):
 
 
 class IndividualPredictions(BaseModel):
-    random_forest: ModelPrediction
-    svm: ModelPrediction
-    neural_network: ModelPrediction
+    random_forest: Optional[ModelPrediction] = None
+    svm: Optional[ModelPrediction] = None
+    neural_network: Optional[ModelPrediction] = None
     pls_regression: Optional[ModelPrediction] = None
+    model_config = ConfigDict(extra="allow")
 
 
 class ConfidenceComponents(BaseModel):
-    probability_score: float
-    entropy_score: float
-    peak_match_score: float
-    model_agreement_score: float
-    spectral_quality_score: float
+    probability_score: Optional[float] = None
+    entropy_score: Optional[float] = None
+    peak_match_score: Optional[float] = None
+    model_agreement_score: Optional[float] = None
+    spectral_quality_score: Optional[float] = None
+    model_config = ConfigDict(extra="allow")
 
 
 class ConfidenceAnalysis(BaseModel):
