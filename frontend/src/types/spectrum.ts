@@ -25,6 +25,13 @@ export interface AnalysisResult {
   top_predictions: PredictionResult[];
   individual_predictions: IndividualPredictions;
   confidence_analysis: ConfidenceAnalysis;
+  processing_time: number;
+  method?: string;
+  database_matches_found?: number;
+  similarity_threshold_used?: number;
+  fallback_reason?: string;
+  database_match_details?: Record<string, any>;
+  external_api_details?: Record<string, any>;
 }
 
 export interface PredictionResult {
@@ -33,9 +40,11 @@ export interface PredictionResult {
 }
 
 export interface IndividualPredictions {
-  random_forest: ModelPrediction;
-  svm: ModelPrediction;
-  neural_network: ModelPrediction;
+  [model: string]: ModelPrediction | undefined;
+  random_forest?: ModelPrediction;
+  svm?: ModelPrediction;
+  neural_network?: ModelPrediction;
+  pls_regression?: ModelPrediction;
 }
 
 export interface ModelPrediction {
@@ -51,11 +60,12 @@ export interface ConfidenceAnalysis {
 }
 
 export interface ConfidenceComponents {
-  probability_score: number;
-  entropy_score: number;
-  peak_match_score: number;
-  model_agreement_score: number;
-  spectral_quality_score: number;
+  [metric: string]: number | undefined;
+  probability_score?: number;
+  entropy_score?: number;
+  peak_match_score?: number;
+  model_agreement_score?: number;
+  spectral_quality_score?: number;
 }
 
 export interface DatabaseStats {

@@ -526,20 +526,28 @@ export default function AnalyzePage() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>Random Forest:</span>
-                      <span>{result.individual_predictions?.random_forest?.compound} ({(result.individual_predictions?.random_forest?.confidence * 100).toFixed(1)}%)</span>
+                      <span>
+                        {result.individual_predictions?.random_forest?.compound ?? 'N/A'} ({((result.individual_predictions?.random_forest?.confidence ?? 0) * 100).toFixed(1)}%)
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span>SVM:</span>
-                      <span>{result.individual_predictions?.svm?.compound} ({(result.individual_predictions?.svm?.confidence * 100).toFixed(1)}%)</span>
+                      <span>
+                        {result.individual_predictions?.svm?.compound ?? 'N/A'} ({((result.individual_predictions?.svm?.confidence ?? 0) * 100).toFixed(1)}%)
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span>Neural Network:</span>
-                      <span>{result.individual_predictions?.neural_network?.compound} ({(result.individual_predictions?.neural_network?.confidence * 100).toFixed(1)}%)</span>
+                      <span>
+                        {result.individual_predictions?.neural_network?.compound ?? 'N/A'} ({((result.individual_predictions?.neural_network?.confidence ?? 0) * 100).toFixed(1)}%)
+                      </span>
                     </div>
                     {result.individual_predictions?.pls_regression && (
                       <div className="flex justify-between">
                         <span>PLS Regression:</span>
-                        <span>{result.individual_predictions.pls_regression.compound} ({(result.individual_predictions.pls_regression.confidence * 100).toFixed(1)}%)</span>
+                        <span>
+                          {result.individual_predictions.pls_regression.compound} ({((result.individual_predictions.pls_regression.confidence ?? 0) * 100).toFixed(1)}%)
+                        </span>
                       </div>
                     )}
                   </div>

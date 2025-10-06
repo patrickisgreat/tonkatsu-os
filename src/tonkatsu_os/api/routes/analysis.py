@@ -211,6 +211,18 @@ def _create_database_match_result(
     
     confidence = best_match["similarity_score"]
     compound_name = best_match["compound_name"]
+    spectral_quality = _estimate_spectral_quality(spectrum)
+    database_coverage = min(len(all_matches) / 5.0, 1.0) if all_matches else 0.0
+    
+    confidence_components = {
+        "probability_score": confidence,
+        "entropy_score": max(0.0, 1.0 - confidence),
+        "peak_match_score": confidence,
+        "model_agreement_score": 1.0,
+        "spectral_quality_score": spectral_quality,
+        "similarity_score": confidence,
+        "database_coverage": database_coverage,
+    }
     
     # Create top predictions from similar matches
     top_predictions = []
@@ -228,16 +240,14 @@ def _create_database_match_result(
         "method": "database_similarity",
         "top_predictions": top_predictions,
         "individual_predictions": {
-            "database_search": {"compound": compound_name, "confidence": confidence},
-            "similarity_algorithm": {"compound": compound_name, "confidence": confidence},
+            "random_forest": {"compound": compound_name, "confidence": confidence},
+            "svm": {"compound": compound_name, "confidence": confidence},
+            "neural_network": {"compound": compound_name, "confidence": confidence},
+            "database_match": {"compound": compound_name, "confidence": confidence},
         },
         "confidence_analysis": {
             "overall_confidence": confidence,
-            "confidence_components": {
-                "similarity_score": confidence,
-                "database_coverage": min(len(all_matches) / 5.0, 1.0),
-                "spectral_quality_score": _estimate_spectral_quality(spectrum),
-            },
+            "confidence_components": confidence_components,
             "risk_level": "low" if confidence > 0.8 else "medium" if confidence > 0.6 else "high",
             "recommendation": f"Database match found with {confidence:.1%} similarity"
         },
@@ -431,22 +441,30 @@ def _try_trained_ml_models(spectrum: np.ndarray, peaks: np.ndarray, features: di
         
         if predictions and len(predictions) > 0:
             prediction = predictions[0]
+            spectral_quality = _estimate_spectral_quality(spectrum)
+            confidence = prediction["confidence"]
+            model_agreement = prediction.get("model_agreement", 0.0)
+            
+            confidence_components = {
+                "probability_score": confidence,
+                "entropy_score": max(0.0, 1.0 - confidence),
+                "peak_match_score": confidence,
+                "model_agreement_score": model_agreement,
+                "spectral_quality_score": spectral_quality,
+                "ml_confidence": confidence,
+            }
             
             return {
                 "predicted_compound": prediction["predicted_compound"],
-                "confidence": prediction["confidence"],
+                "confidence": confidence,
                 "uncertainty": prediction["uncertainty"],
-                "model_agreement": prediction["model_agreement"],
+                "model_agreement": model_agreement,
                 "method": "trained_ml_ensemble",
                 "top_predictions": prediction["top_predictions"],
                 "individual_predictions": prediction["individual_predictions"],
                 "confidence_analysis": {
-                    "overall_confidence": prediction["confidence"],
-                    "confidence_components": {
-                        "ml_confidence": prediction["confidence"],
-                        "model_agreement": prediction["model_agreement"],
-                        "spectral_quality_score": _estimate_spectral_quality(spectrum),
-                    },
+                    "overall_confidence": confidence,
+                    "confidence_components": confidence_components,
                     "risk_level": "low" if prediction["confidence"] > 0.8 else "medium" if prediction["confidence"] > 0.6 else "high",
                     "recommendation": f"Prediction from trained ensemble model"
                 },
@@ -476,23 +494,32 @@ def _try_pretrained_models(spectrum: np.ndarray, peaks: np.ndarray, features: di
         prediction = model_manager.predict_ensemble(spectrum)
         
         if prediction and prediction.get('predicted_compound'):
+            spectral_quality = _estimate_spectral_quality(spectrum)
+            confidence = prediction["confidence"]
+            model_agreement = prediction.get("model_agreement", 0.0)
+            
+            confidence_components = {
+                "probability_score": confidence,
+                "entropy_score": max(0.0, 1.0 - confidence),
+                "peak_match_score": confidence,
+                "model_agreement_score": model_agreement,
+                "spectral_quality_score": spectral_quality,
+                "pretrained_confidence": confidence,
+            }
+            
             result = {
                 "predicted_compound": prediction["predicted_compound"],
-                "confidence": prediction["confidence"],
+                "confidence": confidence,
                 "uncertainty": prediction["uncertainty"],
-                "model_agreement": prediction["model_agreement"],
+                "model_agreement": model_agreement,
                 "method": prediction["method"],
                 "top_predictions": [
-                    {"compound": prediction["predicted_compound"], "probability": prediction["confidence"]}
+                    {"compound": prediction["predicted_compound"], "probability": confidence}
                 ],
                 "individual_predictions": prediction["individual_predictions"],
                 "confidence_analysis": {
-                    "overall_confidence": prediction["confidence"],
-                    "confidence_components": {
-                        "pretrained_confidence": prediction["confidence"],
-                        "model_consensus": prediction["model_agreement"],
-                        "spectral_quality_score": _estimate_spectral_quality(spectrum),
-                    },
+                    "overall_confidence": confidence,
+                    "confidence_components": confidence_components,
                     "risk_level": "medium",  # Pre-trained models get medium risk
                     "recommendation": f"Prediction from pre-trained models ensemble"
                 },
