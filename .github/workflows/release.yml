@@ -19,8 +19,7 @@ jobs:
         run: pip install poetry
 
       - name: Install backend deps
-        run: poetry install
-        working-directory: .
+        run: poetry install --no-root
 
       - name: Run pytest
         run: poetry run pytest -q
@@ -28,6 +27,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install release tooling deps
+        run: npm ci
 
       - name: Install frontend deps
         run: npm ci
@@ -50,6 +56,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Install release deps
         run: npm ci
