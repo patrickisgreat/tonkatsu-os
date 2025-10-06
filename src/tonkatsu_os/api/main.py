@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from tonkatsu_os import __version__
 
 from .models import SystemHealth
-from .routes import acquisition, analysis, database, import_data, system, training
+from .routes import acquisition, analysis, database, import_data, pretrained, system, training
 
 # Load environment variables from .env file
 def load_env_file():
@@ -122,6 +122,7 @@ app.include_router(database.router, prefix="/api/database", tags=["database"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(import_data.router, prefix="/api/import", tags=["import"])
 app.include_router(training.router, prefix="/api/training", tags=["training"])
+app.include_router(pretrained.router, prefix="/api/pretrained", tags=["pretrained"])
 app.include_router(acquisition.router, prefix="/api/acquisition", tags=["acquisition"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 

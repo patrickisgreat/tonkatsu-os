@@ -98,7 +98,10 @@ async def train_models(
 async def get_training_status():
     """Get current training status."""
     try:
-        model_path = "trained_model.pkl"
+        import os
+        model_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(model_dir, "..", "..", "..", "trained_ensemble_model.pkl")
+        model_path = os.path.abspath(model_path)
         model_exists = os.path.exists(model_path)
 
         return TrainingStatus(
@@ -231,7 +234,10 @@ async def _train_models_background(config: TrainingConfig, db, classifier):
         logger.info("Training completed, saving model...")
         
         # Step 5: Save trained model (100% progress)
-        model_path = "trained_ensemble_model.pkl"
+        import os
+        model_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(model_dir, "..", "..", "..", "trained_ensemble_model.pkl")
+        model_path = os.path.abspath(model_path)
         classifier.save_model(model_path)
         
         training_state["progress"] = 1.0
