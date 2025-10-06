@@ -57,7 +57,20 @@ async def analyze_spectrum(
     try:
         start_time = time.time()
 
+        # Validate spectrum data
         spectrum_array = np.array(request.spectrum_data)
+        
+        # Check for NaN/inf values that cause matplotlib errors
+        if np.any(np.isnan(spectrum_array)) or np.any(np.isinf(spectrum_array)):
+            logger.error("Spectrum contains NaN or infinite values")
+            spectrum_array = np.nan_to_num(spectrum_array, nan=0.0, posinf=0.0, neginf=0.0)
+            logger.warning("Cleaned NaN/inf values from spectrum")
+            
+        # Ensure we have valid data
+        if len(spectrum_array) == 0:
+            raise ValueError("Empty spectrum data provided")
+            
+        logger.info(f"Analyzing spectrum: len={len(spectrum_array)}, min={np.min(spectrum_array):.2f}, max={np.max(spectrum_array):.2f}")
 
         # Preprocess if requested
         if request.preprocess:
@@ -91,10 +104,18 @@ async def analyze_spectrum(
             # No good database matches - try external APIs if configured
             result = await _try_external_apis(processed_spectrum, peaks, features)
             
-            # If external APIs also fail, fall back to ML classifier or mock
+            # If external APIs fail, try trained ML models
+            if not result:
+                result = _try_trained_ml_models(processed_spectrum, peaks, features)
+            
+            # If trained models fail, try pre-trained models
+            if not result:
+                result = _try_pretrained_models(processed_spectrum, peaks, features)
+            
+            # If everything fails, fall back to mock
             if not result:
                 result = _create_mock_analysis_result(processed_spectrum, peaks, features)
-                result["fallback_reason"] = "No database matches found, external APIs unavailable"
+                result["fallback_reason"] = "No database matches, external APIs unavailable, no trained/pretrained models"
 
         result["processing_time"] = processing_time
         result["database_matches_found"] = len(similar_spectra) if similar_spectra else 0
@@ -233,7 +254,6 @@ async def _try_external_apis(spectrum: np.ndarray, peaks: np.ndarray, features: 
     """Try external APIs for compound identification."""
     import os
     import asyncio
-    import aiohttp
     
     # Check if external APIs are configured
     nist_api_key = os.getenv("NIST_API_KEY")
@@ -343,6 +363,149 @@ async def _query_chemspider_api(spectrum: np.ndarray, peaks: np.ndarray, api_key
         return None
     except Exception as e:
         logger.error(f"ChemSpider API query failed: {e}")
+        return None
+
+
+def _try_trained_ml_models(spectrum: np.ndarray, peaks: np.ndarray, features: dict) -> dict:
+    """Try to use trained ML models for prediction."""
+    try:
+        import os
+        from tonkatsu_os.ml import EnsembleClassifier
+        from tonkatsu_os.preprocessing import AdvancedPreprocessor
+        
+        # Check if trained model exists
+        model_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(model_dir, "..", "..", "..", "trained_ensemble_model.pkl")
+        model_path = os.path.abspath(model_path)
+        
+        if not os.path.exists(model_path):
+            logger.info("No trained model found for ML prediction")
+            return None
+        
+        # Load trained model
+        classifier = EnsembleClassifier()
+        classifier.load_model(model_path)
+        
+        # Extract features for prediction (same as training)
+        preprocessor = AdvancedPreprocessor()
+        processed_spectrum = preprocessor.preprocess(spectrum)
+        spectral_features = preprocessor.spectral_features(processed_spectrum)
+        
+        # Build feature vector (must match training format)
+        feature_vector = []
+        feature_vector.extend([
+            spectral_features.get('spectral_centroid', 0),
+            spectral_features.get('spectral_spread', 0),
+            spectral_features.get('spectral_skewness', 0),
+            spectral_features.get('spectral_kurtosis', 0),
+            spectral_features.get('spectral_rolloff', 0),
+            spectral_features.get('spectral_flatness', 0),
+            spectral_features.get('zero_crossing_rate', 0),
+            spectral_features.get('num_peaks', 0),
+            spectral_features.get('peak_density', 0),
+            spectral_features.get('dominant_peak_intensity', 0),
+            spectral_features.get('mean_intensity', 0),
+            spectral_features.get('std_intensity', 0),
+            spectral_features.get('max_intensity', 0),
+            spectral_features.get('min_intensity', 0)
+        ])
+        
+        # Add statistical moments
+        feature_vector.extend([
+            np.mean(processed_spectrum),
+            np.std(processed_spectrum),
+            np.median(processed_spectrum),
+            np.percentile(processed_spectrum, 25),
+            np.percentile(processed_spectrum, 75),
+            np.max(processed_spectrum),
+            np.min(processed_spectrum)
+        ])
+        
+        # Add spectral bins (match training)
+        spectrum_bins = processed_spectrum[::50]
+        feature_vector.extend(spectrum_bins.tolist())
+        
+        # Make prediction
+        X = np.array([feature_vector])
+        predictions = classifier.predict(X)
+        
+        if predictions and len(predictions) > 0:
+            prediction = predictions[0]
+            
+            return {
+                "predicted_compound": prediction["predicted_compound"],
+                "confidence": prediction["confidence"],
+                "uncertainty": prediction["uncertainty"],
+                "model_agreement": prediction["model_agreement"],
+                "method": "trained_ml_ensemble",
+                "top_predictions": prediction["top_predictions"],
+                "individual_predictions": prediction["individual_predictions"],
+                "confidence_analysis": {
+                    "overall_confidence": prediction["confidence"],
+                    "confidence_components": {
+                        "ml_confidence": prediction["confidence"],
+                        "model_agreement": prediction["model_agreement"],
+                        "spectral_quality_score": _estimate_spectral_quality(spectrum),
+                    },
+                    "risk_level": "low" if prediction["confidence"] > 0.8 else "medium" if prediction["confidence"] > 0.6 else "high",
+                    "recommendation": f"Prediction from trained ensemble model"
+                },
+                "trained_model_details": {
+                    "model_path": model_path,
+                    "model_type": "custom_ensemble",
+                    "algorithms_used": ["random_forest", "svm", "neural_network", "pls_regression"]
+                }
+            }
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Trained ML model prediction failed: {e}")
+        return None
+
+
+def _try_pretrained_models(spectrum: np.ndarray, peaks: np.ndarray, features: dict) -> dict:
+    """Try to use pre-trained models for prediction."""
+    try:
+        from tonkatsu_os.ml.pretrained_models import PreTrainedModelManager
+        
+        # Initialize pre-trained model manager
+        model_manager = PreTrainedModelManager()
+        
+        # Get ensemble prediction from all available models
+        prediction = model_manager.predict_ensemble(spectrum)
+        
+        if prediction and prediction.get('predicted_compound'):
+            result = {
+                "predicted_compound": prediction["predicted_compound"],
+                "confidence": prediction["confidence"],
+                "uncertainty": prediction["uncertainty"],
+                "model_agreement": prediction["model_agreement"],
+                "method": prediction["method"],
+                "top_predictions": [
+                    {"compound": prediction["predicted_compound"], "probability": prediction["confidence"]}
+                ],
+                "individual_predictions": prediction["individual_predictions"],
+                "confidence_analysis": {
+                    "overall_confidence": prediction["confidence"],
+                    "confidence_components": {
+                        "pretrained_confidence": prediction["confidence"],
+                        "model_consensus": prediction["model_agreement"],
+                        "spectral_quality_score": _estimate_spectral_quality(spectrum),
+                    },
+                    "risk_level": "medium",  # Pre-trained models get medium risk
+                    "recommendation": f"Prediction from pre-trained models ensemble"
+                },
+                "pretrained_model_details": prediction.get("pretrained_model_details", {})
+            }
+            
+            logger.info(f"Pre-trained models predicted: {prediction['predicted_compound']} with {prediction['confidence']:.3f} confidence")
+            return result
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Pre-trained model prediction failed: {e}")
         return None
 
 

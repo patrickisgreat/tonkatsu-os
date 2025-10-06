@@ -565,7 +565,7 @@ export default function AnalyzePage() {
               </div>
             ) : (
               <div className="text-center py-8 text-gray-500">
-                <p>Enter spectrum data and click "Analyze" to see results</p>
+                <p>Enter spectrum data and click &#39;Analyze&#39; to see results</p>
               </div>
             )}
           </div>
