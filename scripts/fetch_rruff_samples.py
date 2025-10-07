@@ -42,22 +42,35 @@ def fetch_samples(output_dir: Path):
                     with zf.open(name) as file_obj:
                         content = file_obj.read().decode("utf-8", errors="ignore")
                         parsed = loader._parse_rruff_spectrum(content)
-                        if parsed is not None and len(parsed) > 0:
-                            spectra.append(
-                                {
-                                    "rruff_id": name.split("__")[0],
-                                    "compound_name": name.split("__")[1].replace("_", " "),
-                                    "chemical_formula": "",
-                                    "spectrum_data": parsed,
-                                    "source": "RRUFF",
-                                    "measurement_conditions": "RRUFF curated sample",
-                                    "laser_wavelength": 532.0,
-                                    "metadata": {
-                                        "original_filename": name,
-                                        "zip_path": str(zip_path),
-                                    },
-                                }
-                            )
+                        if parsed is None or len(parsed) == 0:
+                            continue
+
+                        parts = name.split("__")
+                        mineral = parts[0].replace("_", " ")
+                        rruff_id = parts[1]
+                        is_infrared = "Infrared" in parts
+
+                        measurement = (
+                            "RRUFF infrared curated sample"
+                            if is_infrared
+                            else "RRUFF raman curated sample"
+                        )
+
+                        spectrum_entry = {
+                            "compound_name": mineral,
+                            "chemical_formula": "",
+                            "spectrum_data": parsed,
+                            "measurement_conditions": measurement,
+                            "laser_wavelength": 785.0 if is_infrared else 532.0,
+                            "metadata": {
+                                "original_filename": name,
+                                "zip_path": str(zip_path),
+                                "source": "RRUFF curated",
+                                "rruff_id": rruff_id,
+                            },
+                        }
+
+                        spectra.append(spectrum_entry)
         logger.info("Collected %s spectra from %s", len(spectra), zip_path)
     return spectra
 
