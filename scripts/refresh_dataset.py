@@ -6,7 +6,8 @@ from pathlib import Path
 
 from tonkatsu_os.database import RamanSpectralDatabase
 
-from fetch_rruff_samples import fetch_samples
+from fetch_rruff_samples import fetch_samples as fetch_rruff_samples
+from fetch_pharma_samples import fetch_samples as fetch_pharma_samples
 
 
 def main():
@@ -23,7 +24,10 @@ def main():
     db_path = args.database
     db = RamanSpectralDatabase(str(db_path))
     try:
-        spectra = fetch_samples(Path("data/raw/rruff"))
+        rruff_spectra = fetch_rruff_samples(Path("data/raw/rruff"))
+        pharma_spectra = fetch_pharma_samples()
+
+        spectra = rruff_spectra + pharma_spectra
         if args.limit is not None:
             spectra = spectra[: args.limit]
 
@@ -34,7 +38,11 @@ def main():
     finally:
         db.close()
 
-    print(f"Imported {len(spectra)} spectra and rebuilt feature cache")
+    print(
+        f"Imported {len(spectra)} spectra "
+        f"(RRUFF {len(rruff_spectra)}, Pharma {len(pharma_spectra)}) "
+        "and rebuilt feature cache"
+    )
 
 
 if __name__ == "__main__":

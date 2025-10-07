@@ -1,0 +1,8 @@
+dataset_zip: data/raw/pharma/api_dataset.zip
+samples:
+  - label: Cyclohexane
+    count: 5
+  - label: Toluene
+    count: 5
+  - label: Chloroform
+    count: 5

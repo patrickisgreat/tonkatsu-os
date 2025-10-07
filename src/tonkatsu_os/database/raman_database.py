@@ -459,6 +459,27 @@ class RamanSpectralDatabase:
         logger.info("Rebuilt feature cache for %s spectra", processed_count)
         return processed_count
 
+    def find_duplicates(self) -> List[Dict[str, int]]:
+        """
+        Return potential duplicate spectra grouped by spectral hash.
+
+        Returns:
+            A list of dictionaries containing the hash and associated spectrum IDs.
+        """
+        cursor = self.conn.execute(
+            """
+            SELECT spectral_hash, GROUP_CONCAT(spectrum_id) AS ids
+            FROM spectral_features
+            GROUP BY spectral_hash
+            HAVING COUNT(*) > 1
+            """
+        )
+        duplicates = []
+        for spectral_hash, ids in cursor.fetchall():
+            id_list = [int(i) for i in ids.split(",")]
+            duplicates.append({"hash": spectral_hash, "spectrum_ids": id_list})
+        return duplicates
+
     def close(self):
         """Close database connection."""
         if self.conn:
