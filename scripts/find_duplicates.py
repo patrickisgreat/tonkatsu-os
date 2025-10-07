@@ -15,13 +15,28 @@ def main():
         default=Path("raman_spectra.db"),
         help="Path to SQLite database",
     )
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Remove lower-quality duplicates, keeping the best spectrum per hash",
+    )
     args = parser.parse_args()
 
     db = RamanSpectralDatabase(str(args.database))
     try:
-        duplicates = db.find_duplicates()
+        if args.prune:
+            removed = db.remove_duplicate_spectra()
+            duplicates = db.find_duplicates()
+        else:
+            duplicates = db.find_duplicates()
     finally:
         db.close()
+
+    if args.prune:
+        if removed:
+            print(f"Removed {len(removed)} spectra: {removed}")
+        else:
+            print("No duplicates removed.")
 
     if not duplicates:
         print("No duplicates detected.")

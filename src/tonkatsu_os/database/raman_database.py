@@ -5,11 +5,12 @@ This module provides a comprehensive database system for storing, indexing, and 
 Raman spectra with vectorized representations for efficient similarity matching.
 """
 
+import ast
 import logging
 import pickle
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -479,6 +480,84 @@ class RamanSpectralDatabase:
             id_list = [int(i) for i in ids.split(",")]
             duplicates.append({"hash": spectral_hash, "spectrum_ids": id_list})
         return duplicates
+
+    def _load_metadata(self, metadata) -> Dict[str, Any]:
+        if not metadata:
+            return {}
+        if isinstance(metadata, dict):
+            return metadata
+        try:
+            return ast.literal_eval(metadata)
+        except (ValueError, SyntaxError):
+            return {}
+
+    def _fetch_spectrum_row(self, spectrum_id: int) -> Dict[str, Any]:
+        cursor = self.conn.execute(
+            """
+            SELECT id, compound_name, spectrum_data, metadata
+            FROM spectra
+            WHERE id = ?
+            """,
+            (spectrum_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError(f"Spectrum {spectrum_id} not found")
+        keys = ["id", "compound_name", "spectrum_data", "metadata"]
+        return dict(zip(keys, row))
+
+    def _duplicate_rank(self, spectrum_row: Dict[str, Any]) -> float:
+        metadata = self._load_metadata(spectrum_row.get("metadata"))
+        source = (metadata.get("source") or "").lower()
+        try:
+            spectrum = pickle.loads(spectrum_row["spectrum_data"])
+        except Exception:
+            spectrum = np.asarray([], dtype=float)
+
+        score = 0.0
+        if "curated" in source:
+            score += 1000.0
+        elif "pharma" in source:
+            score += 800.0
+        elif "rruff" in source:
+            score += 500.0
+
+        if hasattr(spectrum, "size") and spectrum.size > 0:
+            score += float(np.max(spectrum))
+            score += float(np.sum(spectrum) / (spectrum.size or 1))
+        return score
+
+    def remove_duplicate_spectra(self) -> List[int]:
+        """
+        Remove lower-quality duplicates, keeping the best spectrum per hash.
+
+        Returns:
+            List of removed spectrum IDs.
+        """
+        duplicates = self.find_duplicates()
+        removed_ids: List[int] = []
+
+        for group in duplicates:
+            ids = group["spectrum_ids"]
+            ranked = []
+            for spectrum_id in ids:
+                row = self._fetch_spectrum_row(spectrum_id)
+                ranked.append((self._duplicate_rank(row), spectrum_id))
+
+            ranked.sort(reverse=True)
+            keep_id = ranked[0][1]
+
+            for _, spectrum_id in ranked[1:]:
+                self.conn.execute(
+                    "DELETE FROM spectral_features WHERE spectrum_id = ?", (spectrum_id,)
+                )
+                self.conn.execute("DELETE FROM spectra WHERE id = ?", (spectrum_id,))
+                removed_ids.append(spectrum_id)
+
+        if removed_ids:
+            self.conn.commit()
+            logger.info("Removed %s duplicate spectra", len(removed_ids))
+        return removed_ids
 
     def close(self):
         """Close database connection."""
