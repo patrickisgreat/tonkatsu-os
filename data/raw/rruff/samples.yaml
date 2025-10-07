@@ -1,0 +1,7 @@
+samples:
+  - local_zip: data/raw/rruff/excellent_oriented.zip
+    zip_url: https://rruff.info/zipped_data_files/raman/excellent_oriented.zip
+    filenames:
+      - R040003__Quartz__532__oriented__rruff.txt
+      - R040006__Abelsonite__532__oriented__rruff.txt
+      - R040063__Quartz__532__oriented__rruff.txt
