@@ -420,6 +420,62 @@ The ML system is now fully integrated:
 - **Filter Options**: Sort by minerals, organics, pharmaceuticals
 - **Metadata Viewing**: Access full spectral parameters and conditions
 
+### Offline Curation Workflow
+The repository includes CLI utilities for refreshing the bundled database
+without an internet connection once the curated archives are in place:
+
+1. Drop curated RRUFF zip archives into `data/raw/rruff/` (see
+   `data/raw/rruff/README.md` for expected filenames).
+2. Inspect the current catalogue:
+   ```bash
+   poetry run python scripts/db_report.py
+   ```
+3. Import the curated spectra and append them to the SQLite store:
+   ```bash
+   poetry run python scripts/fetch_rruff_samples.py --limit 20
+   ```
+4. Recompute preprocessed spectra, peaks and feature vectors:
+   ```bash
+   poetry run python scripts/rebuild_features.py
+   ```
+5. Quickly list spectra or write a CSV export for audit purposes:
+   ```bash
+   poetry run python scripts/list_spectra.py --limit 10
+   ```
+6. Check for potential duplicate entries using spectral hashes:
+   ```bash
+   poetry run python scripts/find_duplicates.py
+   ```
+
+### Pharmaceutical Dataset
+
+To keep the pharmaceutical reference set reproducible, the project includes a
+scripted download and ingestion workflow:
+
+1. Download the curated archive directly:
+   ```bash
+   python - <<'PY'
+import requests
+url = "https://figshare.com/ndownloader/articles/27931131/versions/1"
+with requests.get(url, stream=True) as r:
+    r.raise_for_status()
+    with open("data/raw/pharma/api_dataset.zip", "wb") as f:
+        for chunk in r.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+PY
+   ```
+2. Review `data/raw/pharma/samples.yaml` to adjust which compounds and how many
+   examples are imported.
+3. Run the ingestion script:
+   ```bash
+   poetry run python scripts/fetch_pharma_samples.py --limit 15
+   ```
+4. Rebuild features after adding new spectra (see steps above).
+
+Tip: `poetry run python scripts/refresh_dataset.py` combines the ingest and
+feature rebuild steps into a single command for convenience.
+
 ---
 
 ## Data Import & Export

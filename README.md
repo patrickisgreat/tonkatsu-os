@@ -548,6 +548,55 @@ curl -X GET "http://localhost:8000/api/system/export/sqlite" -o export.db
 - **Caching**: Frequently accessed spectra kept in memory
 - **Vacuum**: Automatic database optimization and cleanup
 
+#### Offline Dataset Refresh
+
+The repository now ships with helper scripts for maintaining a curated, fully
+offline database snapshot:
+
+```bash
+# Inspect current contents
+poetry run python scripts/db_report.py
+
+# List a preview of stored spectra
+poetry run python scripts/list_spectra.py --limit 10
+
+# Ingest curated RRUFF archives cached under data/raw/rruff/
+poetry run python scripts/fetch_rruff_samples.py --limit 20
+
+# Regenerate preprocessed spectra, peaks, and feature vectors
+poetry run python scripts/rebuild_features.py
+
+# Optional one-shot refresh (ingest curated samples + rebuild cache)
+poetry run python scripts/refresh_dataset.py
+
+# Inspect potential duplicate hashes before/after imports
+poetry run python scripts/find_duplicates.py
+```
+
+Place the required zip archives in `data/raw/rruff/` as described in
+`data/raw/rruff/README.md` before running the ingestion commands. Pharmaceutical
+curation follows the same pattern:
+
+```bash
+# Download once (scriptable) and cache the Springer Nature dataset
+python - <<'PY'
+import requests
+url = "https://figshare.com/ndownloader/articles/27931131/versions/1"
+with requests.get(url, stream=True) as r:
+    r.raise_for_status()
+    with open("data/raw/pharma/api_dataset.zip", "wb") as f:
+        for chunk in r.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+PY
+
+# Import curated solvent references listed in data/raw/pharma/samples.yaml
+poetry run python scripts/fetch_pharma_samples.py --limit 15
+```
+
+See `data/raw/pharma/README.md` for details on adjusting the curated sample
+list.
+
 ---
 
 ## 🤖 Machine Learning
