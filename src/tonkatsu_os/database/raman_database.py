@@ -384,6 +384,81 @@ class RamanSpectralDatabase:
         subset = spectrum[::10]  # Every 10th point
         return hashlib.md5(subset.tobytes()).hexdigest()
 
+    def rebuild_feature_cache(self, limit: int = None) -> int:
+        """Recompute preprocessed spectra and feature vectors for all entries.
+
+        Args:
+            limit: Optional limit for the number of spectra to process.
+
+        Returns:
+            The number of spectra regenerated.
+        """
+        from tonkatsu_os.preprocessing import AdvancedPreprocessor
+
+        preprocessor = AdvancedPreprocessor()
+
+        query = "SELECT id, spectrum_data FROM spectra ORDER BY id"
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+
+        cursor = self.conn.execute(query)
+        rows = cursor.fetchall()
+        processed_count = 0
+
+        for spectrum_id, spectrum_blob in rows:
+            try:
+                raw_spectrum = pickle.loads(spectrum_blob)
+                if not isinstance(raw_spectrum, np.ndarray):
+                    raw_spectrum = np.asarray(raw_spectrum, dtype=float)
+                processed = preprocessor.preprocess(raw_spectrum)
+                peaks, peak_intensities = preprocessor.detect_peaks(processed)
+                fingerprint = self._generate_fingerprint(processed, peaks, peak_intensities)
+                feature_vector = self._extract_features(processed, peaks, peak_intensities)
+                spectral_hash = self._compute_spectral_hash(processed)
+
+                self.conn.execute(
+                    """
+                    UPDATE spectra
+                    SET preprocessed_spectrum = ?,
+                        peak_positions = ?,
+                        peak_intensities = ?,
+                        spectral_fingerprint = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        pickle.dumps(processed),
+                        pickle.dumps(peaks),
+                        pickle.dumps(peak_intensities),
+                        pickle.dumps(fingerprint),
+                        spectrum_id,
+                    ),
+                )
+
+                self.conn.execute(
+                    """
+                    INSERT INTO spectral_features (spectrum_id, feature_vector, dominant_peaks, spectral_hash)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(spectrum_id) DO UPDATE SET
+                        feature_vector = excluded.feature_vector,
+                        dominant_peaks = excluded.dominant_peaks,
+                        spectral_hash = excluded.spectral_hash
+                    """,
+                    (
+                        spectrum_id,
+                        pickle.dumps(feature_vector),
+                        pickle.dumps(peaks[:10]),
+                        spectral_hash,
+                    ),
+                )
+
+                processed_count += 1
+            except Exception as exc:  # pragma: no cover - diagnostic output
+                logger.error(f"Failed to rebuild features for spectrum {spectrum_id}: {exc}")
+
+        self.conn.commit()
+        logger.info("Rebuilt feature cache for %s spectra", processed_count)
+        return processed_count
+
     def close(self):
         """Close database connection."""
         if self.conn:
