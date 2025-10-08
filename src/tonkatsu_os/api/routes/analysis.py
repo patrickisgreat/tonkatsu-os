@@ -4,10 +4,14 @@ Analysis API routes for spectrum processing and ML prediction.
 
 import logging
 import time
+<<<<<<< HEAD
 from pathlib import Path
+=======
+from typing import Any, Callable
+>>>>>>> main
 
 import numpy as np
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 
 from ..models import (
     AnalysisRequest,
@@ -21,13 +25,18 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def get_preprocessor():
-    """Dependency to get preprocessor instance."""
-    from tonkatsu_os.preprocessing import AdvancedPreprocessor
+def _resolve_dependency(request: Request, accessor: str, factory: Callable[[], Any]) -> Any:
+    """Fetch shared dependency from the FastAPI app or fall back to local factory."""
+    getter = getattr(request.app, accessor, None)
+    if callable(getter):
+        try:
+            return getter()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning("Failed to obtain '%s' from app state: %s", accessor, exc)
+    return factory()
 
-    return AdvancedPreprocessor()
 
-
+<<<<<<< HEAD
 def get_classifier():
     """Dependency to get classifier instance."""
     from ..state import app_state
@@ -38,21 +47,42 @@ def get_classifier():
         classifier = EnsembleClassifier()
         app_state["classifier"] = classifier
     return classifier
+=======
+def _resolve_preprocessor(request: Request):
+    return _resolve_dependency(
+        request,
+        "get_preprocessor",
+        lambda: __import__(
+            "tonkatsu_os.preprocessing.advanced_preprocessor",
+            fromlist=["AdvancedPreprocessor"],
+        ).AdvancedPreprocessor(),
+    )
+>>>>>>> main
 
 
-def get_database():
-    """Dependency to get database instance."""
-    from tonkatsu_os.database import RamanSpectralDatabase
+def _resolve_database(request: Request):
+    return _resolve_dependency(
+        request,
+        "get_database",
+        lambda: __import__(
+            "tonkatsu_os.database.raman_database",
+            fromlist=["RamanSpectralDatabase"],
+        ).RamanSpectralDatabase(),
+    )
 
-    return RamanSpectralDatabase()
+
+def _resolve_classifier(request: Request):
+    return _resolve_dependency(
+        request,
+        "get_classifier",
+        lambda: None,
+    )
 
 
 @router.post("/analyze", response_model=AnalysisResult)
 async def analyze_spectrum(
-    request: AnalysisRequest,
-    preprocessor=Depends(get_preprocessor),
-    classifier=Depends(get_classifier),
-    database=Depends(get_database),
+    request_data: AnalysisRequest,
+    http_request: Request,
 ):
     """
     Analyze a spectrum and predict the molecular compound.
@@ -63,8 +93,12 @@ async def analyze_spectrum(
     try:
         start_time = time.time()
 
+        preprocessor = _resolve_preprocessor(http_request)
+        database = _resolve_database(http_request)
+        classifier = _resolve_classifier(http_request)
+
         # Validate spectrum data
-        spectrum_array = np.array(request.spectrum_data)
+        spectrum_array = np.array(request_data.spectrum_data)
         
         # Check for NaN/inf values that cause matplotlib errors
         if np.any(np.isnan(spectrum_array)) or np.any(np.isinf(spectrum_array)):
@@ -79,7 +113,10 @@ async def analyze_spectrum(
         logger.info(f"Analyzing spectrum: len={len(spectrum_array)}, min={np.min(spectrum_array):.2f}, max={np.max(spectrum_array):.2f}")
 
         # Preprocess if requested
-        if request.preprocess:
+        config = request_data.config or {}
+        should_preprocess = request_data.preprocess and config.get("preprocessing", True)
+
+        if should_preprocess:
             processed_spectrum = preprocessor.preprocess(spectrum_array)
         else:
             processed_spectrum = spectrum_array
@@ -90,11 +127,14 @@ async def analyze_spectrum(
         # Extract features
         features = preprocessor.spectral_features(processed_spectrum)
 
+        similarity_threshold = float(config.get("similarity_threshold", 0.7))
+        top_k = int(config.get("top_k", 5))
+        models_config = config.get("models") or {}
+
         # Try database similarity search first
-        similarity_threshold = 0.7  # Configurable threshold
         similar_spectra = database.search_similar_spectra(
             processed_spectrum, 
-            top_k=5, 
+            top_k=top_k, 
             similarity_threshold=similarity_threshold
         )
 
@@ -112,7 +152,17 @@ async def analyze_spectrum(
             
             # If external APIs fail, try trained ML models
             if not result:
+<<<<<<< HEAD
             result = _try_trained_ml_models(processed_spectrum, peaks, features, classifier)
+=======
+                enable_trained_models = any(
+                    models_config.get(model_name, True)
+                    for model_name in ["random_forest", "svm", "neural_network", "pls_regression"]
+                )
+
+                if enable_trained_models:
+                    result = _try_trained_ml_models(processed_spectrum, peaks, features, classifier)
+>>>>>>> main
             
             # If trained models fail, try pre-trained models
             if not result:
@@ -136,30 +186,31 @@ async def analyze_spectrum(
 
 @router.post("/preprocess", response_model=list)
 async def preprocess_spectrum(
-    request: PreprocessingRequest, preprocessor=Depends(get_preprocessor)
+    request_data: PreprocessingRequest, http_request: Request
 ):
     """Preprocess a spectrum with specified options."""
     try:
-        spectrum_array = np.array(request.spectrum_data)
+        preprocessor = _resolve_preprocessor(http_request)
+        spectrum_array = np.array(request_data.spectrum_data)
 
-        if request.options:
+        if request_data.options:
             # Apply custom preprocessing options
             processed = spectrum_array.copy()
 
-            if request.options.smooth:
+            if request_data.options.smooth:
                 processed = preprocessor.smooth_spectrum(
-                    processed, window_length=request.options.smoothing_window
+                    processed, window_length=request_data.options.smoothing_window
                 )
 
-            if request.options.baseline_correct:
+            if request_data.options.baseline_correct:
                 processed = preprocessor.baseline_correction(processed)
 
-            if request.options.remove_spikes:
+            if request_data.options.remove_spikes:
                 processed = preprocessor.remove_cosmic_rays(processed)
 
-            if request.options.normalize:
+            if request_data.options.normalize:
                 processed = preprocessor.normalize_spectrum(
-                    processed, method=request.options.normalization_method
+                    processed, method=request_data.options.normalization_method
                 )
         else:
             # Use default preprocessing
@@ -173,10 +224,11 @@ async def preprocess_spectrum(
 
 
 @router.post("/peaks", response_model=PeakDetectionResult)
-async def detect_peaks(spectrum_data: list, preprocessor=Depends(get_preprocessor)):
+async def detect_peaks(spectrum_data: list = Body(...), http_request: Request = None):
     """Detect peaks in a spectrum."""
     try:
         spectrum_array = np.array(spectrum_data)
+        preprocessor = _resolve_preprocessor(http_request)
         peaks, peak_intensities = preprocessor.detect_peaks(spectrum_array)
 
         # Calculate peak properties
@@ -197,10 +249,11 @@ async def detect_peaks(spectrum_data: list, preprocessor=Depends(get_preprocesso
 
 
 @router.post("/features", response_model=dict)
-async def extract_features(spectrum_data: list, preprocessor=Depends(get_preprocessor)):
+async def extract_features(spectrum_data: list = Body(...), http_request: Request = None):
     """Extract spectral features for ML analysis."""
     try:
         spectrum_array = np.array(spectrum_data)
+        preprocessor = _resolve_preprocessor(http_request)
         features = preprocessor.spectral_features(spectrum_array)
 
         return features
@@ -392,19 +445,38 @@ def _try_trained_ml_models(
     try:
         from tonkatsu_os.preprocessing import AdvancedPreprocessor
 
+<<<<<<< HEAD
         if classifier is None or not getattr(classifier, "is_trained", False):
             import os
             from tonkatsu_os.ml import EnsembleClassifier
 
             model_path = Path("trained_ensemble_model.pkl")
             if not model_path.exists():
+=======
+        model_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(model_dir, "..", "..", "..", "trained_ensemble_model.pkl")
+        model_path = os.path.abspath(model_path)
+
+        if classifier is None:
+            if not os.path.exists(model_path):
+>>>>>>> main
                 logger.info("No trained model found for ML prediction")
                 return None
 
             classifier = EnsembleClassifier()
+<<<<<<< HEAD
             classifier.load_model(str(model_path))
 
         # Extract features for prediction (same as training)
+=======
+            classifier.load_model(model_path)
+        elif getattr(classifier, "is_trained", False) is False and os.path.exists(model_path):
+            classifier.load_model(model_path)
+        elif getattr(classifier, "is_trained", False) is False:
+            logger.info("Trained classifier instance not available")
+            return None
+
+>>>>>>> main
         preprocessor = AdvancedPreprocessor()
         processed_spectrum = preprocessor.preprocess(spectrum)
         spectral_features = preprocessor.spectral_features(processed_spectrum)

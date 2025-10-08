@@ -10,7 +10,12 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(description="Report database statistics")
-    parser.add_argument("--database", type=Path, default=Path("raman_spectra.db"))
+    parser.add_argument(
+        "--database",
+        type=Path,
+        default=Path("raman_spectra.db"),
+        help="Path to SQLite database",
+    )
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.database)
@@ -22,20 +27,18 @@ def main():
     cur.execute("SELECT COUNT(DISTINCT compound_name) FROM spectra")
     unique_compounds = cur.fetchone()[0]
 
-    # Source breakdown from metadata
-    cur.execute("SELECT metadata FROM spectra WHERE metadata IS NOT NULL")
-    sources = Counter()
-    for (metadata,) in cur.fetchall():
+    cur.execute("SELECT metadata FROM spectra")
+    sources_counter = Counter()
+    for (metadata_str,) in cur.fetchall():
         source = "unknown"
-        if metadata:
+        if metadata_str:
             try:
-                data = ast.literal_eval(metadata)
-                source = data.get("source", source)
+                metadata = ast.literal_eval(metadata_str)
+                source = metadata.get("source", source)
             except (ValueError, SyntaxError):
                 pass
-        sources[source] += 1
+        sources_counter[source] += 1
 
-    # Duplicate groups
     cur.execute(
         """
         SELECT spectral_hash, COUNT(*)
@@ -50,7 +53,7 @@ def main():
     print(f"Total spectra: {total}")
     print(f"Unique compounds: {unique_compounds}")
     print("By source:")
-    for source, count in sources.most_common():
+    for source, count in sources_counter.most_common():
         print(f"  {source}: {count}")
     print(f"Duplicate groups: {len(duplicates)}")
 

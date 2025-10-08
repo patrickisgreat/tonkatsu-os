@@ -5,7 +5,11 @@ A comprehensive, open-source Raman spectrometer control and AI-powered
 molecular identification platform.
 """
 
+import os
 from typing import TYPE_CHECKING, Any
+
+# Avoid macOS Accelerate backend, which crashes in certain sandboxed environments.
+os.environ.setdefault("NPY_DISABLE_MACOS_ACCELERATE", "1")
 
 __version__ = "0.2.0"
 __author__ = "Patrick"

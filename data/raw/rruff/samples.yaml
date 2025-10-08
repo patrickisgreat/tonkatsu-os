@@ -1,0 +1,10 @@
+samples:
+- filenames:
+  - Edingtonite__R040003-3__Raman__514__0__ccw__Raman_Data_Processed__2.txt
+  - Edingtonite__R040003-4__Raman__514__0__ccw__Raman_Data_Processed__12.txt
+  - Quartz__R050125-3__Raman__514__0__ccw__Raman_Data_Processed__5586.txt
+  local_zip: data/raw/rruff/excellent_oriented.zip
+- filenames:
+  - Albite__R040129-1__Infrared__Infrared_Data_Processed__4.txt
+  - Rhodochrosite__R040133-1__Infrared__Infrared_Data_Processed__68.txt
+  local_zip: data/raw/rruff/processed_ir.zip
