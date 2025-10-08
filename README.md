@@ -633,6 +633,24 @@ Over 50 features extracted from each spectrum:
 }
 ```
 
+#### Training / Refreshing the Ensemble
+
+```bash
+# Train the ensemble on the current SQLite database
+poetry run python scripts/train_ensemble.py --rebuild-features
+
+# Metrics and metadata
+cat trained_ensemble_metrics.json
+
+# Model artifact used by the API
+ls -lh trained_ensemble_model.pkl
+```
+
+The training script filters out labels with fewer than three samples, rebuilds
+the feature cache, trains the ensemble, and persists both the model
+(`trained_ensemble_model.pkl`) and the metrics JSON for inspection. Use
+`--min-samples` or `--use-pls` to tweak the training configuration.
+
 ### Model Performance
 
 Typical performance on well-curated datasets:

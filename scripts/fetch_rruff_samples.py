@@ -1,4 +1,15 @@
 #!/usr/bin/env python3
+<<<<<<< HEAD
+"""Import curated RRUFF spectra from cached archives."""
+
+import argparse
+import logging
+import zipfile
+from pathlib import Path
+from typing import Dict, List
+
+import yaml
+=======
 """Fetch a deterministic subset of RRUFF spectra defined in samples.yaml."""
 
 import argparse
@@ -7,6 +18,7 @@ from pathlib import Path
 
 import yaml
 import zipfile
+>>>>>>> main
 
 from tonkatsu_os.core.data_loader import RRUFFDataLoader
 from tonkatsu_os.database import RamanSpectralDatabase
@@ -17,6 +29,17 @@ logger = logging.getLogger("fetch_rruff_samples")
 SAMPLES_CONFIG = Path("data/raw/rruff/samples.yaml")
 
 
+<<<<<<< HEAD
+def fetch_samples(output_dir: Path) -> List[Dict]:
+    loader = RRUFFDataLoader(data_dir=str(output_dir))
+    config = yaml.safe_load(SAMPLES_CONFIG.read_text())
+
+    spectra: List[Dict] = []
+
+    for entry in config.get("samples", []):
+        filenames = set(entry.get("filenames", []))
+        zip_path = Path(entry.get("local_zip", ""))
+=======
 def fetch_samples(output_dir: Path):
     """Load curated RRUFF spectra from cached zip archives."""
     loader = RRUFFDataLoader(data_dir=str(output_dir))
@@ -31,12 +54,47 @@ def fetch_samples(output_dir: Path):
         else:
             raise ValueError("samples.yaml must provide 'local_zip' paths for offline use")
 
+>>>>>>> main
         if not zip_path.exists():
             raise FileNotFoundError(f"Missing cached RRUFF zip: {zip_path}")
 
         logger.info("Reading %s", zip_path)
         with zipfile.ZipFile(zip_path, "r") as zf:
             for name in zf.namelist():
+<<<<<<< HEAD
+                if name not in filenames:
+                    continue
+                logger.info("Processing %s", name)
+                with zf.open(name) as fh:
+                    content = fh.read().decode("utf-8", errors="ignore")
+                    parsed = loader._parse_rruff_spectrum(content)
+                    if parsed is None or len(parsed) == 0:
+                        continue
+
+                    parts = name.split("__")
+                    mineral = parts[0].replace("_", " ")
+                    rruff_id = parts[1] if len(parts) > 1 else ""
+                    is_ir = "Infrared" in parts
+
+                    spectra.append(
+                        {
+                            "compound_name": mineral,
+                            "chemical_formula": "",
+                            "spectrum_data": parsed,
+                            "measurement_conditions": "RRUFF infrared curated sample"
+                            if is_ir
+                            else "RRUFF raman curated sample",
+                            "laser_wavelength": 785.0 if is_ir else 532.0,
+                            "metadata": {
+                                "source": "RRUFF curated",
+                                "original_filename": name,
+                                "zip_path": str(zip_path),
+                                "rruff_id": rruff_id,
+                            },
+                        }
+                    )
+    logger.info("Collected %s spectra", len(spectra))
+=======
                 if name in filenames:
                     logger.info("Processing %s", name)
                     with zf.open(name) as file_obj:
@@ -72,10 +130,16 @@ def fetch_samples(output_dir: Path):
 
                         spectra.append(spectrum_entry)
         logger.info("Collected %s spectra from %s", len(spectra), zip_path)
+>>>>>>> main
     return spectra
 
 
 def main():
+<<<<<<< HEAD
+    parser = argparse.ArgumentParser(description="Fetch curated RRUFF spectra")
+    parser.add_argument("--database", type=Path, default=Path("raman_spectra.db"))
+    parser.add_argument("--limit", type=int, help="Limit spectra added")
+=======
     parser = argparse.ArgumentParser(description="Fetch curated RRUFF samples.")
     parser.add_argument(
         "--database",
@@ -84,6 +148,7 @@ def main():
         help="Path to SQLite database",
     )
     parser.add_argument("--limit", type=int, help="Limit spectra added to database")
+>>>>>>> main
     args = parser.parse_args()
 
     output_dir = Path("data/raw/rruff")
@@ -93,7 +158,10 @@ def main():
     if args.limit is not None:
         spectra = spectra[: args.limit]
 
+<<<<<<< HEAD
+=======
     logger.info("Integrating %s spectra", len(spectra))
+>>>>>>> main
     db = RamanSpectralDatabase(str(args.database))
     try:
         for spec in spectra:

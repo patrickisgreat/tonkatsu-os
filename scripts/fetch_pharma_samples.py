@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
+<<<<<<< HEAD
+"""Import curated pharmaceutical spectra from cached dataset."""
+
+import argparse
+=======
 """Import curated pharmaceutical Raman spectra from cached archives."""
 
 import argparse
 import logging
+>>>>>>> main
 import zipfile
 from collections import defaultdict
 from pathlib import Path
@@ -13,6 +19,13 @@ import yaml
 
 from tonkatsu_os.database import RamanSpectralDatabase
 
+<<<<<<< HEAD
+SAMPLES_CONFIG = Path("data/raw/pharma/samples.yaml")
+
+
+def fetch_samples() -> List[Dict]:
+    config = yaml.safe_load(SAMPLES_CONFIG.read_text())
+=======
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("fetch_pharma_samples")
 
@@ -29,6 +42,7 @@ def _load_config() -> Dict:
 
 def fetch_samples() -> List[Dict]:
     config = _load_config()
+>>>>>>> main
     dataset_zip = Path(config["dataset_zip"])
     if not dataset_zip.exists():
         raise FileNotFoundError(f"Cached dataset not found: {dataset_zip}")
@@ -40,11 +54,47 @@ def fetch_samples() -> List[Dict]:
     with zipfile.ZipFile(dataset_zip, "r") as zf:
         with zf.open("raman_spectra_api_compounds.csv") as csv_file:
             reader = pd.read_csv(csv_file, chunksize=512)
+<<<<<<< HEAD
+            offset = 0
+=======
             row_offset = 0
+>>>>>>> main
             for chunk in reader:
                 if all(remaining[label] <= 0 for label in remaining):
                     break
 
+<<<<<<< HEAD
+                intensity_cols = chunk.columns.drop("label")
+                for label, need in list(remaining.items()):
+                    if need <= 0:
+                        continue
+                    matches = chunk[chunk["label"] == label]
+                    if matches.empty:
+                        continue
+                    take = min(need, len(matches))
+                    for _, row in matches.iloc[:take].iterrows():
+                        intensities = row[intensity_cols].astype(float).to_numpy()
+                        collected[label].append(
+                            {
+                                "compound_name": label,
+                                "chemical_formula": "",
+                                "spectrum_data": intensities,
+                                "measurement_conditions": "Pharma API curated sample",
+                                "laser_wavelength": 785.0,
+                                "metadata": {
+                                    "source": "Pharma curated",
+                                    "dataset_zip": str(dataset_zip),
+                                    "row_index": int(offset + row.name),
+                                },
+                            }
+                        )
+                    remaining[label] -= take
+                offset += len(chunk)
+
+    spectra: List[Dict] = []
+    for label, entries in collected.items():
+        spectra.extend(entries)
+=======
                 label_series = chunk["label"]
                 intensity_cols = chunk.columns.drop("label")
 
@@ -84,10 +134,16 @@ def fetch_samples() -> List[Dict]:
     if missing:
         logger.warning("Did not fulfill counts for labels: %s", missing)
 
+>>>>>>> main
     return spectra
 
 
 def main():
+<<<<<<< HEAD
+    parser = argparse.ArgumentParser(description="Import curated pharma spectra")
+    parser.add_argument("--database", type=Path, default=Path("raman_spectra.db"))
+    parser.add_argument("--limit", type=int, help="Limit number of spectra")
+=======
     parser = argparse.ArgumentParser(description="Fetch curated Pharma spectra")
     parser.add_argument(
         "--database",
@@ -96,6 +152,7 @@ def main():
         help="Path to SQLite database",
     )
     parser.add_argument("--limit", type=int, help="Optional limit for inserted spectra")
+>>>>>>> main
     args = parser.parse_args()
 
     spectra = fetch_samples()
@@ -109,7 +166,11 @@ def main():
     finally:
         db.close()
 
+<<<<<<< HEAD
+    print(f"Imported {len(spectra)} Pharma spectra")
+=======
     logger.info("Imported %s Pharma spectra", len(spectra))
+>>>>>>> main
 
 
 if __name__ == "__main__":

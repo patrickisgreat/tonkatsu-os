@@ -1,13 +1,45 @@
 #!/usr/bin/env python3
+<<<<<<< HEAD
+"""List spectra metadata from the local SQLite database."""
+
+import argparse
+=======
 """List spectra and metadata from the bundled SQLite database."""
 
 import argparse
 import csv
+>>>>>>> main
 import sqlite3
 from pathlib import Path
 
 import pandas as pd
 
+<<<<<<< HEAD
+
+def list_spectra(database: Path, limit: int) -> pd.DataFrame:
+    conn = sqlite3.connect(database)
+    try:
+        query = (
+            "SELECT id, compound_name, chemical_formula, cas_number, acquisition_date "
+            "FROM spectra ORDER BY id ASC LIMIT ?"
+        )
+        return pd.read_sql_query(query, conn, params=(limit,))
+    finally:
+        conn.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="List spectra entries")
+    parser.add_argument("--database", type=Path, default=Path("raman_spectra.db"))
+    parser.add_argument("--limit", type=int, default=10)
+    args = parser.parse_args()
+
+    df = list_spectra(args.database, args.limit)
+    if df.empty:
+        print("No spectra found.")
+    else:
+        print(df.to_string(index=False))
+=======
 DB_PATH = Path("raman_spectra.db")
 
 
@@ -59,6 +91,7 @@ def main():
 
     df = list_spectra(limit=args.limit)
     print(df.to_string(index=False))
+>>>>>>> main
 
 
 if __name__ == "__main__":

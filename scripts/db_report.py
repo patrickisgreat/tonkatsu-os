@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a quick summary of the Raman spectra database."""
+"""Generate summary statistics for the Raman spectra database."""
 
 import argparse
 import ast
@@ -39,6 +39,15 @@ def main():
                 pass
         sources_counter[source] += 1
 
+    cur.execute(
+        """
+        SELECT spectral_hash, COUNT(*)
+        FROM spectral_features
+        GROUP BY spectral_hash
+        HAVING COUNT(*) > 1
+        """
+    )
+    duplicates = cur.fetchall()
     conn.close()
 
     print(f"Total spectra: {total}")
@@ -46,6 +55,7 @@ def main():
     print("By source:")
     for source, count in sources_counter.most_common():
         print(f"  {source}: {count}")
+    print(f"Duplicate groups: {len(duplicates)}")
 
 
 if __name__ == "__main__":
