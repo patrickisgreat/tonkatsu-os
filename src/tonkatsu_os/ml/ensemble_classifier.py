@@ -161,8 +161,18 @@ class EnsembleClassifier:
         self.ensemble_model = VotingClassifier(estimators=estimators, voting="soft")
 
         # Calibrate for better probability estimates
-        self.ensemble_model = CalibratedClassifierCV(self.ensemble_model, method="isotonic", cv=3)
-        self.ensemble_model.fit(X_train_processed, y_train)
+        class_counts = np.bincount(y_train)
+        min_class_samples = np.min(class_counts)
+        if min_class_samples >= 2:
+            cv = min(3, int(min_class_samples))
+            self.ensemble_model = CalibratedClassifierCV(self.ensemble_model, method="isotonic", cv=cv)
+            self.ensemble_model.fit(X_train_processed, y_train)
+        else:
+            logger.warning(
+                "Skipping ensemble calibration due to limited samples per class (min=%s)",
+                min_class_samples,
+            )
+            self.ensemble_model.fit(X_train_processed, y_train)
 
         self.is_trained = True
 

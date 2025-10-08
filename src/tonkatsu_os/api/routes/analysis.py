@@ -4,6 +4,7 @@ Analysis API routes for spectrum processing and ML prediction.
 
 import logging
 import time
+from pathlib import Path
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,9 +30,14 @@ def get_preprocessor():
 
 def get_classifier():
     """Dependency to get classifier instance."""
+    from ..state import app_state
     from tonkatsu_os.ml import EnsembleClassifier
 
-    return EnsembleClassifier()
+    classifier = app_state.get("classifier")
+    if classifier is None:
+        classifier = EnsembleClassifier()
+        app_state["classifier"] = classifier
+    return classifier
 
 
 def get_database():
@@ -106,7 +112,7 @@ async def analyze_spectrum(
             
             # If external APIs fail, try trained ML models
             if not result:
-                result = _try_trained_ml_models(processed_spectrum, peaks, features)
+            result = _try_trained_ml_models(processed_spectrum, peaks, features, classifier)
             
             # If trained models fail, try pre-trained models
             if not result:
@@ -376,26 +382,28 @@ async def _query_chemspider_api(spectrum: np.ndarray, peaks: np.ndarray, api_key
         return None
 
 
-def _try_trained_ml_models(spectrum: np.ndarray, peaks: np.ndarray, features: dict) -> dict:
+def _try_trained_ml_models(
+    spectrum: np.ndarray,
+    peaks: np.ndarray,
+    features: dict,
+    classifier=None,
+) -> dict:
     """Try to use trained ML models for prediction."""
     try:
-        import os
-        from tonkatsu_os.ml import EnsembleClassifier
         from tonkatsu_os.preprocessing import AdvancedPreprocessor
-        
-        # Check if trained model exists
-        model_dir = os.path.dirname(os.path.abspath(__file__))
-        model_path = os.path.join(model_dir, "..", "..", "..", "trained_ensemble_model.pkl")
-        model_path = os.path.abspath(model_path)
-        
-        if not os.path.exists(model_path):
-            logger.info("No trained model found for ML prediction")
-            return None
-        
-        # Load trained model
-        classifier = EnsembleClassifier()
-        classifier.load_model(model_path)
-        
+
+        if classifier is None or not getattr(classifier, "is_trained", False):
+            import os
+            from tonkatsu_os.ml import EnsembleClassifier
+
+            model_path = Path("trained_ensemble_model.pkl")
+            if not model_path.exists():
+                logger.info("No trained model found for ML prediction")
+                return None
+
+            classifier = EnsembleClassifier()
+            classifier.load_model(str(model_path))
+
         # Extract features for prediction (same as training)
         preprocessor = AdvancedPreprocessor()
         processed_spectrum = preprocessor.preprocess(spectrum)

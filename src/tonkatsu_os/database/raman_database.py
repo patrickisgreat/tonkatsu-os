@@ -5,11 +5,12 @@ This module provides a comprehensive database system for storing, indexing, and 
 Raman spectra with vectorized representations for efficient similarity matching.
 """
 
+import ast
 import logging
 import pickle
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -383,6 +384,168 @@ class RamanSpectralDatabase:
         # Use a subset of the spectrum for hashing
         subset = spectrum[::10]  # Every 10th point
         return hashlib.md5(subset.tobytes()).hexdigest()
+
+    def rebuild_feature_cache(self, limit: int = None) -> int:
+        """Recompute preprocessed spectra and feature vectors for all entries."""
+        from tonkatsu_os.preprocessing import AdvancedPreprocessor
+
+        preprocessor = AdvancedPreprocessor()
+
+        query = "SELECT id, spectrum_data FROM spectra ORDER BY id"
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+
+        cursor = self.conn.execute(query)
+        rows = cursor.fetchall()
+        processed_count = 0
+
+        for spectrum_id, spectrum_blob in rows:
+            try:
+                raw_spectrum = pickle.loads(spectrum_blob)
+                if not isinstance(raw_spectrum, np.ndarray):
+                    raw_spectrum = np.asarray(raw_spectrum, dtype=float)
+
+                processed = preprocessor.preprocess(raw_spectrum)
+                peaks, peak_intensities = preprocessor.detect_peaks(processed)
+                fingerprint = self._generate_fingerprint(processed, peaks, peak_intensities)
+                feature_vector = self._extract_features(processed, peaks, peak_intensities)
+                spectral_hash = self._compute_spectral_hash(processed)
+
+                self.conn.execute(
+                    """
+                    UPDATE spectra
+                    SET preprocessed_spectrum = ?,
+                        peak_positions = ?,
+                        peak_intensities = ?,
+                        spectral_fingerprint = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        pickle.dumps(processed),
+                        pickle.dumps(peaks),
+                        pickle.dumps(peak_intensities),
+                        pickle.dumps(fingerprint),
+                        spectrum_id,
+                    ),
+                )
+
+                self.conn.execute(
+                    """
+                    INSERT INTO spectral_features (spectrum_id, feature_vector, dominant_peaks, spectral_hash)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(spectrum_id) DO UPDATE SET
+                        feature_vector = excluded.feature_vector,
+                        dominant_peaks = excluded.dominant_peaks,
+                        spectral_hash = excluded.spectral_hash
+                    """,
+                    (
+                        spectrum_id,
+                        pickle.dumps(feature_vector),
+                        pickle.dumps(peaks[:10]),
+                        spectral_hash,
+                    ),
+                )
+
+                processed_count += 1
+            except Exception as exc:  # pragma: no cover - diagnostic logging
+                logger.error("Failed to rebuild features for spectrum %s: %s", spectrum_id, exc)
+
+        self.conn.commit()
+        logger.info("Rebuilt feature cache for %s spectra", processed_count)
+        return processed_count
+
+    def find_duplicates(self) -> List[Dict[str, int]]:
+        """Return potential duplicate spectra grouped by spectral hash."""
+
+        cursor = self.conn.execute(
+            """
+            SELECT spectral_hash, GROUP_CONCAT(spectrum_id) AS ids
+            FROM spectral_features
+            GROUP BY spectral_hash
+            HAVING COUNT(*) > 1
+            """
+        )
+
+        duplicates = []
+        for spectral_hash, ids in cursor.fetchall():
+            id_list = [int(i) for i in ids.split(",")]
+            duplicates.append({"hash": spectral_hash, "spectrum_ids": id_list})
+        return duplicates
+
+    def _load_metadata(self, metadata: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+        if not metadata:
+            return {}
+        if isinstance(metadata, dict):
+            return metadata
+        try:
+            return ast.literal_eval(metadata)
+        except (ValueError, SyntaxError):
+            return {}
+
+    def _fetch_spectrum_row(self, spectrum_id: int) -> Dict[str, Any]:
+        cursor = self.conn.execute(
+            """
+            SELECT id, compound_name, spectrum_data, metadata
+            FROM spectra
+            WHERE id = ?
+            """,
+            (spectrum_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError(f"Spectrum {spectrum_id} not found")
+        keys = ["id", "compound_name", "spectrum_data", "metadata"]
+        return dict(zip(keys, row))
+
+    def _duplicate_rank(self, spectrum_row: Dict[str, Any]) -> float:
+        metadata = self._load_metadata(spectrum_row.get("metadata"))
+        source = (metadata.get("source") or "").lower()
+        try:
+            spectrum = pickle.loads(spectrum_row["spectrum_data"])
+        except Exception:
+            spectrum = np.asarray([], dtype=float)
+
+        score = 0.0
+        if "curated" in source:
+            score += 1000.0
+        elif "pharma" in source:
+            score += 800.0
+        elif "rruff" in source:
+            score += 500.0
+
+        if hasattr(spectrum, "size") and spectrum.size > 0:
+            score += float(np.max(spectrum))
+            score += float(np.sum(spectrum) / (spectrum.size or 1))
+        return score
+
+    def remove_duplicate_spectra(self) -> List[int]:
+        """Remove duplicate spectra, keeping the highest-ranked entry per hash."""
+
+        duplicates = self.find_duplicates()
+        removed_ids: List[int] = []
+
+        for group in duplicates:
+            ids = group["spectrum_ids"]
+            ranked = []
+            for spectrum_id in ids:
+                row = self._fetch_spectrum_row(spectrum_id)
+                ranked.append((self._duplicate_rank(row), spectrum_id))
+
+            ranked.sort(reverse=True)
+            keep_id = ranked[0][1]
+
+            for _, spectrum_id in ranked[1:]:
+                self.conn.execute(
+                    "DELETE FROM spectral_features WHERE spectrum_id = ?",
+                    (spectrum_id,),
+                )
+                self.conn.execute("DELETE FROM spectra WHERE id = ?", (spectrum_id,))
+                removed_ids.append(spectrum_id)
+
+        if removed_ids:
+            self.conn.commit()
+            logger.info("Removed %s duplicate spectra", len(removed_ids))
+        return removed_ids
 
     def close(self):
         """Close database connection."""

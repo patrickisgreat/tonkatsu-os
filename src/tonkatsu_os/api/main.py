@@ -2,6 +2,7 @@
 FastAPI main application for Tonkatsu-OS backend.
 """
 
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse
 from tonkatsu_os import __version__
 
 from .models import SystemHealth
+from .state import app_state
 from .routes import acquisition, analysis, database, import_data, pretrained, system, training
 
 # Load environment variables from .env file
@@ -40,10 +42,6 @@ load_env_file()
 
 logger = logging.getLogger(__name__)
 
-# Global state
-app_state = {}
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
@@ -57,7 +55,24 @@ async def lifespan(app: FastAPI):
 
         app_state["database"] = RamanSpectralDatabase()
         app_state["preprocessor"] = AdvancedPreprocessor()
-        app_state["classifier"] = EnsembleClassifier()
+
+        classifier = EnsembleClassifier()
+        model_path = Path("trained_ensemble_model.pkl")
+        metrics_path = Path("trained_ensemble_metrics.json")
+
+        if model_path.exists():
+            try:
+                classifier.load_model(str(model_path))
+                logger.info("Loaded trained ensemble model from %s", model_path)
+                if metrics_path.exists():
+                    try:
+                        app_state["model_metrics"] = json.loads(metrics_path.read_text())
+                    except json.JSONDecodeError:
+                        logger.warning("Failed to parse metrics file %s", metrics_path)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.warning("Failed to load existing model %s: %s", model_path, exc)
+
+        app_state["classifier"] = classifier
 
         logger.info("Components initialized successfully")
     except Exception as e:
