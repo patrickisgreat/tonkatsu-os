@@ -1,14 +1,16 @@
 // API client for Tonkatsu-OS backend
 
 import axios from 'axios'
-import { 
-  Spectrum, 
-  AnalysisResult, 
-  DatabaseStats, 
+import {
+  Spectrum,
+  AnalysisResult,
+  DatabaseStats,
   SimilarSpectrum,
   ImportResult,
   TrainingResult,
-  ApiResponse 
+  ApiResponse,
+  AcquisitionResponse,
+  HardwareStatus,
 } from '@/types/spectrum'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -163,25 +165,34 @@ export const api = {
   },
 
   // Acquisition (hardware interface)
-  async acquireSpectrum(integrationTime?: number): Promise<number[]> {
+  async acquireSpectrum(options?: {
+    integrationTime?: number
+    simulate?: boolean
+    simulationFile?: string
+  }): Promise<AcquisitionResponse> {
     return apiClient.post('/acquisition/acquire', {
-      integration_time: integrationTime || 200
+      integration_time: options?.integrationTime ?? 200,
+      simulate: options?.simulate ?? false,
+      simulation_file: options?.simulationFile ?? null,
     })
   },
 
-  async getHardwareStatus(): Promise<{
-    connected: boolean;
-    port?: string;
-    laser_status?: string;
-    temperature?: number;
-    last_communication?: string;
-  }> {
+  async getHardwareStatus(): Promise<HardwareStatus> {
     return apiClient.get('/acquisition/status')
   },
 
-  async connectHardware(port?: string): Promise<ApiResponse<any>> {
+  async connectHardware(options?: {
+    port?: string
+    simulate?: boolean
+    simulationFile?: string
+  }): Promise<ApiResponse<any>> {
+    const params: Record<string, any> = {}
+    if (options?.port) params.port = options.port
+    if (typeof options?.simulate === 'boolean') params.simulate = options.simulate
+    if (options?.simulationFile) params.simulation_file = options.simulationFile
+
     return apiClient.post('/acquisition/connect', null, {
-      params: { port: port || '/dev/ttyUSB0' }
+      params,
     })
   },
 

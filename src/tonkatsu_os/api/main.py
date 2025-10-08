@@ -14,6 +14,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from tonkatsu_os import __version__
+from tonkatsu_os.hardware import HardwareManager
 
 from .models import SystemHealth
 from .state import app_state
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI):
 
         app_state["database"] = RamanSpectralDatabase()
         app_state["preprocessor"] = AdvancedPreprocessor()
+        app_state["hardware_manager"] = HardwareManager()
 
         classifier = EnsembleClassifier()
         model_path = Path("trained_ensemble_model.pkl")
@@ -85,6 +87,11 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Tonkatsu-OS API server...")
     if "database" in app_state:
         app_state["database"].close()
+    if "hardware_manager" in app_state:
+        try:
+            app_state["hardware_manager"].disconnect_spectrometer()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning("Failed to disconnect spectrometer on shutdown: %s", exc)
 
 
 # Create FastAPI app

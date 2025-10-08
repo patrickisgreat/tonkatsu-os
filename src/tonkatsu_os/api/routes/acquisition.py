@@ -3,209 +3,225 @@ Hardware acquisition API routes for spectrometer control.
 """
 
 import logging
-import time
 from datetime import datetime
+from typing import Optional
 
-import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
-from tonkatsu_os.hardware import HardwareManager
+from tonkatsu_os.hardware import (
+    HardwareManager,
+    SpectrometerAcquisitionError,
+    SpectrometerConnectionError,
+    SpectrometerError,
+)
 
-from ..models import AcquisitionRequest, ApiResponse, HardwareStatus
+from ..models import (
+    AcquisitionRequest,
+    AcquisitionResponse,
+    ApiResponse,
+    HardwareStatus,
+)
+from ..state import app_state
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Global hardware manager instance
-hardware_manager = HardwareManager()
+
+def _get_hardware_manager() -> HardwareManager:
+    """Retrieve (or initialize) the shared hardware manager."""
+    manager = app_state.get("hardware_manager")
+    if manager is None:
+        manager = HardwareManager()
+        app_state["hardware_manager"] = manager
+    return manager
 
 
-@router.post("/acquire", response_model=list)
+@router.post("/acquire", response_model=AcquisitionResponse)
 async def acquire_spectrum(request: AcquisitionRequest):
     """
     Acquire a spectrum from the connected spectrometer.
 
-    If no hardware is connected, this generates a synthetic spectrum
-    for demonstration purposes.
+    This endpoint returns real hardware data when available and
+    simulator data when explicitly requested. Acquisition failures
+    result in a 500 error with a descriptive reason.
     """
+    manager = _get_hardware_manager()
+    integration_time = int(request.integration_time)
+
     try:
-        logger.info(f"Acquiring spectrum with integration time: {request.integration_time}ms")
+        spectrum = manager.acquire_spectrum(
+            integration_time,
+            simulate=request.simulate,
+            simulation_file=request.simulation_file,
+        )
+    except (SpectrometerConnectionError, SpectrometerAcquisitionError) as exc:
+        logger.error("Spectrometer acquisition failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except SpectrometerError as exc:
+        logger.error("Unexpected spectrometer error: %s", exc)
+        raise HTTPException(status_code=500, detail="Spectrometer error") from exc
 
-        # Try to acquire from real hardware first
-        spectrum = hardware_manager.acquire_spectrum(request.integration_time)
+    status = manager.get_spectrometer_status()
+    source = status.get("last_source") or ("simulator" if request.simulate else "hardware")
+    acquired_at: datetime = status.get("last_acquired_at") or datetime.utcnow()
 
-        if spectrum is not None:
-            logger.info("Acquired spectrum from hardware")
-            return spectrum.tolist()
-        else:
-            # Fall back to synthetic spectrum for demo
-            logger.info("No hardware connected, generating synthetic spectrum")
-            spectrum = _generate_demo_spectrum(request.integration_time)
-            return spectrum.tolist()
-
-    except Exception as e:
-        logger.error(f"Error acquiring spectrum: {e}")
-        raise HTTPException(status_code=500, detail=f"Acquisition failed: {str(e)}")
+    return AcquisitionResponse(
+        data=[float(x) for x in spectrum.tolist()],
+        source=source,
+        integration_time=float(integration_time),
+        acquired_at=acquired_at,
+        port=status.get("port"),
+        simulation_file=status.get("simulation_file"),
+    )
 
 
 @router.get("/status", response_model=HardwareStatus)
 async def get_hardware_status():
     """Get current hardware connection status."""
+    manager = _get_hardware_manager()
+
     try:
-        # Get status from hardware manager
-        status = hardware_manager.get_spectrometer_status()
+        status = manager.get_spectrometer_status()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Error getting hardware status: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-        # Convert to expected format
-        hardware_status = {
-            "connected": status["connected"],
-            "port": status["port"],
-            "laser_status": "ready" if status["connected"] else "disconnected",
-            "temperature": status.get("temperature", 25.0),
-            "last_communication": status.get("last_communication"),
-        }
+    hardware_status = HardwareStatus(
+        connected=bool(status.get("connected")),
+        port=status.get("port"),
+        laser_status="ready" if status.get("connected") else "disconnected",
+        temperature=status.get("temperature"),
+        last_communication=status.get("last_communication"),
+        last_error=status.get("last_error"),
+        last_source=status.get("last_source"),
+        last_acquired_at=status.get("last_acquired_at"),
+        simulate=bool(status.get("simulate")),
+        simulation_file=status.get("simulation_file"),
+        data_points=status.get("data_points"),
+    )
 
-        return HardwareStatus(**hardware_status)
-
-    except Exception as e:
-        logger.error(f"Error getting hardware status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return hardware_status
 
 
 @router.post("/connect", response_model=ApiResponse)
-async def connect_hardware(port: str = "/dev/ttyUSB0"):
-    """Connect to spectrometer hardware."""
+async def connect_hardware(
+    port: Optional[str] = Query(
+        None,
+        description="Serial port for the spectrometer (ignored in simulator mode)",
+    ),
+    simulate: bool = Query(False, description="Use the simulator instead of hardware"),
+    simulation_file: Optional[str] = Query(
+        None, description="Optional path to recorded spectrum for simulation"
+    ),
+):
+    """Connect to spectrometer hardware or initialize the simulator."""
+    manager = _get_hardware_manager()
+    target_port = port or ("simulator" if simulate else "/dev/ttyUSB0")
+
     try:
-        logger.info(f"Attempting to connect to B&W Tek spectrometer on port: {port}")
+        manager.connect_spectrometer(
+            port=target_port,
+            simulate=simulate,
+            simulation_file=simulation_file,
+        )
+    except SpectrometerConnectionError as exc:
+        logger.error("Failed to connect to spectrometer: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except SpectrometerError as exc:  # pragma: no cover - defensive logging
+        logger.error("Unexpected spectrometer error: %s", exc)
+        raise HTTPException(status_code=500, detail="Spectrometer error") from exc
 
-        # Attempt real hardware connection
-        success = hardware_manager.connect_spectrometer(port)
-
-        if success:
-            return ApiResponse(success=True, message=f"Connected to B&W Tek spectrometer on {port}")
-        else:
-            return ApiResponse(
-                success=False,
-                message=f"Failed to connect to spectrometer on {port}. Check if device is connected and port is correct.",
-            )
-
-    except Exception as e:
-        logger.error(f"Error connecting to hardware: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    message = (
+        "Initialized spectrometer simulator"
+        if simulate
+        else f"Connected to B&W Tek spectrometer on {target_port}"
+    )
+    return ApiResponse(success=True, message=message)
 
 
 @router.post("/disconnect", response_model=ApiResponse)
 async def disconnect_hardware():
     """Disconnect from spectrometer hardware."""
+    manager = _get_hardware_manager()
+    status = manager.get_spectrometer_status()
+
+    if not status.get("connected"):
+        return ApiResponse(success=False, message="No spectrometer connected")
+
     try:
-        status = hardware_manager.get_spectrometer_status()
+        success = manager.disconnect_spectrometer()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Error disconnecting spectrometer: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-        if status["connected"]:
-            success = hardware_manager.disconnect_spectrometer()
-
-            if success:
-                return ApiResponse(success=True, message="Spectrometer disconnected")
-            else:
-                return ApiResponse(success=False, message="Error disconnecting spectrometer")
-        else:
-            return ApiResponse(success=False, message="No hardware connected")
-
-    except Exception as e:
-        logger.error(f"Error disconnecting hardware: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    if success:
+        return ApiResponse(success=True, message="Spectrometer disconnected")
+    return ApiResponse(success=False, message="Error disconnecting spectrometer")
 
 
 @router.post("/laser/on", response_model=ApiResponse)
 async def laser_on():
-    """Turn on the laser."""
+    """Turn on the laser, if the hardware supports it."""
+    manager = _get_hardware_manager()
+    status = manager.get_spectrometer_status()
+
+    if not status.get("connected"):
+        raise HTTPException(status_code=400, detail="Spectrometer not connected")
+
+    spectrometer = manager.spectrometer
+    if not spectrometer:
+        raise HTTPException(status_code=400, detail="Spectrometer not initialized")
+
     try:
-        status = hardware_manager.get_spectrometer_status()
+        success = spectrometer.laser_on()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Error controlling laser: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-        if not status["connected"]:
-            raise HTTPException(status_code=400, detail="Spectrometer not connected")
-
-        # Note: B&W Tek hardware may not have direct laser control via serial
-        # Laser is typically controlled by physical switch or acquisition commands
-        success = hardware_manager.spectrometer.laser_on()
-
-        if success:
-            return ApiResponse(
-                success=True,
-                message="Laser control signal sent (check hardware for physical laser switch)",
-            )
-        else:
-            return ApiResponse(success=False, message="Failed to control laser")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error turning on laser: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    if success:
+        return ApiResponse(
+            success=True,
+            message="Laser control signal sent (verify hardware switch)",
+        )
+    return ApiResponse(success=False, message="Failed to control laser")
 
 
 @router.post("/laser/off", response_model=ApiResponse)
 async def laser_off():
-    """Turn off the laser."""
+    """Turn off the laser, if the hardware supports it."""
+    manager = _get_hardware_manager()
+    status = manager.get_spectrometer_status()
+
+    if not status.get("connected"):
+        raise HTTPException(status_code=400, detail="Spectrometer not connected")
+
+    spectrometer = manager.spectrometer
+    if not spectrometer:
+        raise HTTPException(status_code=400, detail="Spectrometer not initialized")
+
     try:
-        status = hardware_manager.get_spectrometer_status()
+        success = spectrometer.laser_off()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Error controlling laser: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-        if not status["connected"]:
-            raise HTTPException(status_code=400, detail="Spectrometer not connected")
-
-        # Note: B&W Tek hardware may not have direct laser control via serial
-        success = hardware_manager.spectrometer.laser_off()
-
-        if success:
-            return ApiResponse(
-                success=True,
-                message="Laser control signal sent (check hardware for physical laser switch)",
-            )
-        else:
-            return ApiResponse(success=False, message="Failed to control laser")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error turning off laser: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    if success:
+        return ApiResponse(
+            success=True,
+            message="Laser control signal sent (verify hardware switch)",
+        )
+    return ApiResponse(success=False, message="Failed to control laser")
 
 
 @router.get("/ports", response_model=list)
 async def scan_ports():
     """Scan for available serial ports."""
+    manager = _get_hardware_manager()
+
     try:
-        ports = hardware_manager.scan_ports()
-        logger.info(f"Found {len(ports)} available ports")
-        return ports
+        ports = manager.scan_ports()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Error scanning ports: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    except Exception as e:
-        logger.error(f"Error scanning ports: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-def _generate_demo_spectrum(integration_time: float) -> np.ndarray:
-    """Generate a realistic demo spectrum."""
-    # Create a synthetic Raman spectrum
-    length = 2048
-    x = np.arange(length)
-
-    # Base spectrum
-    spectrum = np.random.normal(100, 10, length)  # Noise baseline
-
-    # Add some characteristic peaks (simulate different molecules based on time)
-    peak_positions = [400, 800, 1200, 1600, 1800]
-    peak_intensities = [500, 800, 600, 400, 300]
-
-    for pos, intensity in zip(peak_positions, peak_intensities):
-        if pos < length:
-            width = 20
-            peak = intensity * np.exp(-((x - pos) ** 2) / (2 * width**2))
-            spectrum += peak
-
-    # Add integration time effect (longer time = better SNR)
-    snr_factor = np.sqrt(integration_time / 200.0)  # Normalize to 200ms
-    spectrum = spectrum * snr_factor + np.random.normal(0, 50 / snr_factor, length)
-
-    # Ensure non-negative
-    spectrum = np.maximum(spectrum, 0)
-
-    return spectrum
+    return ports
