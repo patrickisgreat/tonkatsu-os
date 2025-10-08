@@ -386,9 +386,6 @@ class RamanSpectralDatabase:
         return hashlib.md5(subset.tobytes()).hexdigest()
 
     def rebuild_feature_cache(self, limit: int = None) -> int:
-<<<<<<< HEAD
-        """Recompute preprocessed spectra and feature vectors for all entries."""
-=======
         """Recompute preprocessed spectra and feature vectors for all entries.
 
         Args:
@@ -397,7 +394,6 @@ class RamanSpectralDatabase:
         Returns:
             The number of spectra regenerated.
         """
->>>>>>> main
         from tonkatsu_os.preprocessing import AdvancedPreprocessor
 
         preprocessor = AdvancedPreprocessor()
@@ -415,10 +411,6 @@ class RamanSpectralDatabase:
                 raw_spectrum = pickle.loads(spectrum_blob)
                 if not isinstance(raw_spectrum, np.ndarray):
                     raw_spectrum = np.asarray(raw_spectrum, dtype=float)
-<<<<<<< HEAD
-
-=======
->>>>>>> main
                 processed = preprocessor.preprocess(raw_spectrum)
                 peaks, peak_intensities = preprocessor.detect_peaks(processed)
                 fingerprint = self._generate_fingerprint(processed, peaks, peak_intensities)
@@ -461,30 +453,20 @@ class RamanSpectralDatabase:
                 )
 
                 processed_count += 1
-<<<<<<< HEAD
-            except Exception as exc:  # pragma: no cover - diagnostic logging
-                logger.error("Failed to rebuild features for spectrum %s: %s", spectrum_id, exc)
-=======
             except Exception as exc:  # pragma: no cover - diagnostic output
                 logger.error(f"Failed to rebuild features for spectrum {spectrum_id}: {exc}")
->>>>>>> main
 
         self.conn.commit()
         logger.info("Rebuilt feature cache for %s spectra", processed_count)
         return processed_count
 
     def find_duplicates(self) -> List[Dict[str, int]]:
-<<<<<<< HEAD
-        """Return potential duplicate spectra grouped by spectral hash."""
-
-=======
         """
         Return potential duplicate spectra grouped by spectral hash.
 
         Returns:
             A list of dictionaries containing the hash and associated spectrum IDs.
         """
->>>>>>> main
         cursor = self.conn.execute(
             """
             SELECT spectral_hash, GROUP_CONCAT(spectrum_id) AS ids
@@ -493,17 +475,12 @@ class RamanSpectralDatabase:
             HAVING COUNT(*) > 1
             """
         )
-<<<<<<< HEAD
-
-=======
->>>>>>> main
         duplicates = []
         for spectral_hash, ids in cursor.fetchall():
             id_list = [int(i) for i in ids.split(",")]
             duplicates.append({"hash": spectral_hash, "spectrum_ids": id_list})
         return duplicates
 
-<<<<<<< HEAD
     def _load_metadata(self, metadata: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
         if not metadata:
             return {}
@@ -579,8 +556,6 @@ class RamanSpectralDatabase:
             logger.info("Removed %s duplicate spectra", len(removed_ids))
         return removed_ids
 
-=======
->>>>>>> main
     def close(self):
         """Close database connection."""
         if self.conn:

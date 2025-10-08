@@ -470,6 +470,25 @@ DATA_POINTS = 2048               # Spectral resolution
 LASER_WAVELENGTH = 473.0         # nm
 ```
 
+### Diagnostics & Simulator Toolkit
+
+- **Enumerate serial interfaces**  
+  `poetry run python scripts/list_ports.py --verbose`  
+  Use `--json` for machine-readable output when wiring UI diagnostics.
+
+- **Replay recorded spectra through the simulator**  
+  ```bash
+  poetry run python scripts/simulate_acquisition.py data/simulations/sample_spectrum.csv --send
+  ```
+  The script validates the file locally, initializes the backend simulator,
+  and prints the API response so you can confirm `/api/acquisition/acquire`
+  returns deterministic data.
+
+- **Frontend integration**  
+  `/api/acquisition/ports` backs the port selector, `/api/acquisition/status`
+  exposes connection details (including last error/source), and `/api/acquisition/acquire`
+  now reports `{data, source}` so the UI can distinguish hardware vs simulator spectra.
+
 ### Safety Protocols
 
 > **⚠️ LASER SAFETY WARNING**

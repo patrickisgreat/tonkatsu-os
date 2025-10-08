@@ -132,6 +132,29 @@ export interface ApiResponse<T> {
   message?: string;
 }
 
+export interface HardwareStatus {
+  connected: boolean;
+  port?: string;
+  laser_status?: string;
+  temperature?: number;
+  last_communication?: string;
+  last_error?: string;
+  last_source?: string;
+  last_acquired_at?: string;
+  simulate?: boolean;
+  simulation_file?: string | null;
+  data_points?: number;
+}
+
+export interface AcquisitionResponse {
+  data: number[];
+  source: 'hardware' | 'simulator';
+  integration_time: number;
+  acquired_at: string;
+  port?: string | null;
+  simulation_file?: string | null;
+}
+
 // UI State types
 export interface LoadingState {
   isLoading: boolean;

@@ -3,14 +3,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '@/utils/api'
 import { SpectralChart } from '@/components/SpectralChart'
-
-interface HardwareStatus {
-  connected: boolean;
-  port?: string;
-  laser_status?: string;
-  temperature?: number;
-  last_communication?: string;
-}
+import type { HardwareStatus, AcquisitionResponse } from '@/types/spectrum'
 
 interface Port {
   device: string;
@@ -30,6 +23,9 @@ export default function AnalyzePage() {
   const [mode, setMode] = useState<'hardware' | 'manual'>('hardware')
   const [connecting, setConnecting] = useState(false)
   const [acquiring, setAcquiring] = useState(false)
+  const [acquisitionInfo, setAcquisitionInfo] = useState<AcquisitionResponse | null>(null)
+  const [simulateMode, setSimulateMode] = useState(false)
+  const [simulationFile, setSimulationFile] = useState<string>('')
   
   // Analysis configuration
   const [analysisConfig, setAnalysisConfig] = useState({
@@ -50,17 +46,38 @@ export default function AnalyzePage() {
 
   // Load hardware status and available ports on mount
   useEffect(() => {
-    loadHardwareStatus()
-    scanForPorts()
+    void loadHardwareStatus()
+    void scanForPorts()
+
+    const interval = setInterval(() => {
+      void loadHardwareStatus()
+    }, 5000)
+
+    return () => {
+      clearInterval(interval)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadHardwareStatus = async () => {
     try {
       const status = await api.getHardwareStatus()
       setHardwareStatus(status)
+      if (status.connected) {
+        setSimulateMode(Boolean(status.simulate))
+      }
     } catch (error) {
       console.error('Failed to load hardware status:', error)
     }
+  }
+
+  const formatTimestamp = (value?: string | null) => {
+    if (!value) return '—'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return value
+    }
+    return date.toLocaleString()
   }
 
   const scanForPorts = async () => {
@@ -75,13 +92,30 @@ export default function AnalyzePage() {
     }
   }
 
+  const handleSimulatorToggle = (checked: boolean) => {
+    setSimulateMode(checked)
+    if (checked) {
+      setSelectedPort('simulator')
+    } else if (selectedPort === 'simulator') {
+      setSelectedPort('/dev/ttyUSB0')
+    }
+  }
+
   const handleConnect = async () => {
     setConnecting(true)
     try {
-      const response = await api.connectHardware(selectedPort)
+      const response = await api.connectHardware(
+        simulateMode
+          ? {
+              simulate: true,
+              simulationFile: simulationFile || undefined,
+              port: selectedPort
+            }
+          : { port: selectedPort }
+      )
       if (response.success) {
         await loadHardwareStatus()
-        alert('Connected to Raman spectrometer successfully!')
+        alert(response.message ?? 'Spectrometer connection established')
       } else {
         alert(`Connection failed: ${response.message}`)
       }
@@ -97,6 +131,7 @@ export default function AnalyzePage() {
     try {
       await api.disconnectHardware()
       await loadHardwareStatus()
+      setAcquisitionInfo(null)
       alert('Disconnected from spectrometer')
     } catch (error) {
       console.error('Disconnect failed:', error)
@@ -107,17 +142,24 @@ export default function AnalyzePage() {
   const handleAcquireSpectrum = async () => {
     setAcquiring(true)
     try {
-      const spectrumArray = await api.acquireSpectrum(integrationTime)
-      
+      const acquisition = await api.acquireSpectrum({
+        integrationTime,
+        simulate: simulateMode,
+        simulationFile: simulationFile || undefined
+      })
+      setAcquisitionInfo(acquisition)
+      const spectrumArray = acquisition.data
+
       // Convert to comma-separated string for display and analysis
       setSpectrumData(spectrumArray.join(', '))
-      
+
       // Automatically analyze the acquired spectrum
       await analyzeSpectrum(spectrumArray)
-      
-    } catch (error) {
+      await loadHardwareStatus()
+    } catch (error: any) {
       console.error('Spectrum acquisition failed:', error)
-      alert('Failed to acquire spectrum. Check hardware connection.')
+      const message = error?.message ?? 'Failed to acquire spectrum. Check hardware connection.'
+      alert(message)
     } finally {
       setAcquiring(false)
     }
@@ -152,6 +194,7 @@ export default function AnalyzePage() {
         return
       }
       
+      setAcquisitionInfo(null)
       await analyzeSpectrum(data)
     } catch (error) {
       console.error('Manual analysis failed:', error)
@@ -349,65 +392,143 @@ export default function AnalyzePage() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>Connection:</span>
-                      <span className={`font-medium ${
-                        hardwareStatus?.connected ? 'text-green-600' : 'text-red-600'
-                      }`}>
+                      <span className={`font-medium ${hardwareStatus?.connected ? 'text-green-600' : 'text-red-600'}`}>
                         {hardwareStatus?.connected ? '✅ Connected' : '❌ Disconnected'}
                       </span>
                     </div>
+                    <div className="flex justify-between">
+                      <span>Mode:</span>
+                      <span className="font-medium">
+                        {hardwareStatus?.simulate ? 'Simulator' : 'Hardware'}
+                      </span>
+                    </div>
+                    {hardwareStatus?.port && (
+                      <div className="flex justify-between">
+                        <span>Port:</span>
+                        <span className="font-mono text-xs">{hardwareStatus.port}</span>
+                      </div>
+                    )}
+                    {typeof hardwareStatus?.temperature === 'number' && (
+                      <div className="flex justify-between">
+                        <span>Temperature:</span>
+                        <span>{hardwareStatus.temperature?.toFixed(1)}°C</span>
+                      </div>
+                    )}
                     {hardwareStatus?.connected && (
-                      <>
-                        <div className="flex justify-between">
-                          <span>Port:</span>
-                          <span className="font-mono text-xs">{hardwareStatus.port}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Laser:</span>
-                          <span className={`font-medium ${
-                            hardwareStatus.laser_status === 'ready' ? 'text-green-600' : 'text-yellow-600'
-                          }`}>
-                            {hardwareStatus.laser_status}
-                          </span>
-                        </div>
-                      </>
+                      <div className="flex justify-between">
+                        <span>Laser:</span>
+                        <span className={`font-medium ${hardwareStatus.laser_status === 'ready' ? 'text-green-600' : 'text-yellow-600'}`}>
+                          {hardwareStatus.laser_status}
+                        </span>
+                      </div>
+                    )}
+                    {hardwareStatus?.data_points && (
+                      <div className="flex justify-between">
+                        <span>Data Points:</span>
+                        <span>{hardwareStatus.data_points}</span>
+                      </div>
+                    )}
+                    {hardwareStatus?.last_source && (
+                      <div className="flex justify-between">
+                        <span>Last Source:</span>
+                        <span className="font-medium capitalize">{hardwareStatus.last_source}</span>
+                      </div>
+                    )}
+                    {hardwareStatus?.last_acquired_at && (
+                      <div className="flex justify-between">
+                        <span>Last Acquisition:</span>
+                        <span className="text-xs">{formatTimestamp(hardwareStatus.last_acquired_at)}</span>
+                      </div>
+                    )}
+                    {hardwareStatus?.last_error && (
+                      <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                        <span className="font-semibold">Last error:</span> {hardwareStatus.last_error}
+                      </div>
                     )}
                   </div>
                 </div>
 
                 {/* Connection Controls */}
                 {!hardwareStatus?.connected && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Serial Port
-                    </label>
-                    <div className="flex space-x-2">
-                      <select
-                        value={selectedPort}
-                        onChange={(e) => setSelectedPort(e.target.value)}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                      >
-                        <option value="/dev/ttyUSB0">/dev/ttyUSB0 (Default)</option>
-                        {availablePorts.map((port) => (
-                          <option key={port.device} value={port.device}>
-                            {port.device} - {port.description}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={scanForPorts}
-                        className="px-3 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-                        title="Scan for ports"
-                      >
-                        🔄
-                      </button>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="flex items-center text-sm">
+                        <input
+                          type="checkbox"
+                          checked={simulateMode}
+                          onChange={(e) => handleSimulatorToggle(e.target.checked)}
+                          className="mr-2 rounded"
+                        />
+                        <span>Use hardware simulator (development)</span>
+                      </label>
+                      {simulateMode && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Simulation File (optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={simulationFile}
+                            onChange={(e) => setSimulationFile(e.target.value)}
+                            placeholder="e.g. data/simulations/spectrum.csv"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Provide a CSV or JSON path to replay recorded spectra.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Serial Port
+                      </label>
+                      <div className="flex space-x-2">
+                        <select
+                          value={selectedPort}
+                          onChange={(e) => setSelectedPort(e.target.value)}
+                          disabled={simulateMode}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {(simulateMode || selectedPort === 'simulator') && (
+                            <option value="simulator">Simulator (virtual)</option>
+                          )}
+                          <option value="/dev/ttyUSB0">/dev/ttyUSB0 (Default)</option>
+                          {availablePorts.map((port) => (
+                            <option key={port.device} value={port.device}>
+                              {port.device} - {port.description}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={scanForPorts}
+                          disabled={simulateMode}
+                          className="px-3 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Scan for ports"
+                        >
+                          🔄
+                        </button>
+                      </div>
+                      {simulateMode && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Port selection is disabled while the simulator is active.
+                        </p>
+                      )}
                     </div>
                     
                     <button
                       onClick={handleConnect}
                       disabled={connecting}
-                      className="btn-primary w-full mt-4 disabled:opacity-50"
+                      className="btn-primary w-full disabled:opacity-50"
                     >
-                      {connecting ? 'Connecting...' : 'Connect to Spectrometer'}
+                      {connecting
+                        ? simulateMode
+                          ? 'Starting simulator...'
+                          : 'Connecting...'
+                        : simulateMode
+                          ? 'Start Simulator'
+                          : 'Connect to Spectrometer'}
                     </button>
                   </div>
                 )}
@@ -422,7 +543,10 @@ export default function AnalyzePage() {
                       <input
                         type="number"
                         value={integrationTime}
-                        onChange={(e) => setIntegrationTime(parseInt(e.target.value))}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value, 10)
+                          setIntegrationTime(Number.isFinite(value) ? value : 200)
+                        }}
                         min="50"
                         max="5000"
                         step="50"
@@ -451,6 +575,34 @@ export default function AnalyzePage() {
                 )}
 
                 {/* Spectrum Preview */}
+                {acquisitionInfo && (
+                  <div
+                    className={`border rounded-md p-3 text-sm ${
+                      acquisitionInfo.source === 'hardware'
+                        ? 'border-green-200 bg-green-50'
+                        : 'border-blue-200 bg-blue-50'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium">
+                        {acquisitionInfo.source === 'hardware' ? 'Hardware spectrum' : 'Simulator spectrum'}
+                      </span>
+                      <span className="text-xs text-gray-600">
+                        Captured {formatTimestamp(acquisitionInfo.acquired_at)}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-xs text-gray-700 space-y-1">
+                      <div>Integration: {acquisitionInfo.integration_time} ms</div>
+                      {acquisitionInfo.source === 'hardware' && acquisitionInfo.port && (
+                        <div>Port: {acquisitionInfo.port}</div>
+                      )}
+                      {acquisitionInfo.source === 'simulator' && acquisitionInfo.simulation_file && (
+                        <div>Source file: {acquisitionInfo.simulation_file}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {spectrumData && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -509,7 +661,14 @@ export default function AnalyzePage() {
                 {/* Spectral Chart */}
                 {analyzedSpectrumData.length > 0 && (
                   <div className="bg-white border rounded-lg p-4">
-                    <h4 className="font-medium text-gray-900 mb-4">Analyzed Spectrum</h4>
+                    <h4 className="font-medium text-gray-900 mb-4">
+                      Analyzed Spectrum
+                      {acquisitionInfo && (
+                        <span className="ml-2 text-xs uppercase tracking-wide text-gray-500">
+                          {acquisitionInfo.source}
+                        </span>
+                      )}
+                    </h4>
                     <SpectralChart
                       spectrumData={analyzedSpectrumData}
                       compoundName={result.predicted_compound}
