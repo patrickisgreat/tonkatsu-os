@@ -1,3 +1,20 @@
+# [1.1.0](https://github.com/patrickisgreat/tonkatsu-os/compare/v1.0.0...v1.1.0) (2025-10-08)
+
+
+### Bug Fixes
+
+* merge conflicts from an earlier merge ([e7821b2](https://github.com/patrickisgreat/tonkatsu-os/commit/e7821b211aa46701393442738dbcf1be5448eb72))
+* merge conflicts from an earlier merge ([f85b694](https://github.com/patrickisgreat/tonkatsu-os/commit/f85b694b1db836897888bf02c1ce345434acf0cd))
+* merge conflicts from an earlier merge ([c57e119](https://github.com/patrickisgreat/tonkatsu-os/commit/c57e119b618f9ce23501856c28e4e985cabc1c89))
+* phase 5 hardware normalization and configuration ([c747245](https://github.com/patrickisgreat/tonkatsu-os/commit/c747245dd78bd5ae753b6569967471e2d3566332))
+
+
+### Features
+
+* extend frontend acquisition UI and api, newer backend capability ([ca6a434](https://github.com/patrickisgreat/tonkatsu-os/commit/ca6a43428060f53967eaadeab51efc476276a454))
+* implement backend updates hardware helpers, enhanced spectrometer handling, shared state, FastAPI routes ([889ce8b](https://github.com/patrickisgreat/tonkatsu-os/commit/889ce8b0283c7029bc803a97bff520c53630aadf))
+* implementing hardware simulation ([db5d5e5](https://github.com/patrickisgreat/tonkatsu-os/commit/db5d5e552b9ec833470027b13aa3ebb693b8459a))
+
 # 1.0.0 (2025-10-08)
 
 
