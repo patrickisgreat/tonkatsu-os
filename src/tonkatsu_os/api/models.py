@@ -3,7 +3,7 @@ Pydantic models for API request/response schemas.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -190,6 +190,19 @@ class AcquisitionRequest(BaseModel):
     laser_power: Optional[float] = Field(
         None, ge=0.0, le=100.0, description="Laser power percentage"
     )
+    simulate: bool = Field(False, description="Use simulator instead of hardware")
+    simulation_file: Optional[str] = Field(
+        None, description="Optional path to recorded spectrum for simulator"
+    )
+
+
+class AcquisitionResponse(BaseModel):
+    data: List[float]
+    source: Literal["hardware", "simulator"]
+    integration_time: float
+    acquired_at: datetime
+    port: Optional[str] = None
+    simulation_file: Optional[str] = None
 
 
 class HardwareStatus(BaseModel):
@@ -198,6 +211,12 @@ class HardwareStatus(BaseModel):
     laser_status: Optional[str]
     temperature: Optional[float]
     last_communication: Optional[datetime]
+    last_error: Optional[str] = None
+    last_source: Optional[str] = None
+    last_acquired_at: Optional[datetime] = None
+    simulate: bool = False
+    simulation_file: Optional[str] = None
+    data_points: Optional[int] = None
 
 
 # Data integration models
