@@ -3,14 +3,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '@/utils/api'
 import { SpectralChart } from '@/components/SpectralChart'
-
-interface HardwareStatus {
-  connected: boolean;
-  port?: string;
-  laser_status?: string;
-  temperature?: number;
-  last_communication?: string;
-}
+import type { HardwareStatus, AcquisitionResponse } from '@/types/spectrum'
 
 interface Port {
   device: string;
@@ -30,6 +23,9 @@ export default function AnalyzePage() {
   const [mode, setMode] = useState<'hardware' | 'manual'>('hardware')
   const [connecting, setConnecting] = useState(false)
   const [acquiring, setAcquiring] = useState(false)
+  const [acquisitionInfo, setAcquisitionInfo] = useState<AcquisitionResponse | null>(null)
+  const [simulateMode, setSimulateMode] = useState(false)
+  const [simulationFile, setSimulationFile] = useState<string>('')
   
   // Analysis configuration
   const [analysisConfig, setAnalysisConfig] = useState({
@@ -50,17 +46,38 @@ export default function AnalyzePage() {
 
   // Load hardware status and available ports on mount
   useEffect(() => {
-    loadHardwareStatus()
-    scanForPorts()
+    void loadHardwareStatus()
+    void scanForPorts()
+
+    const interval = setInterval(() => {
+      void loadHardwareStatus()
+    }, 5000)
+
+    return () => {
+      clearInterval(interval)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadHardwareStatus = async () => {
     try {
       const status = await api.getHardwareStatus()
       setHardwareStatus(status)
+      if (status.simulate) {
+        setSimulateMode(true)
+      }
     } catch (error) {
       console.error('Failed to load hardware status:', error)
     }
+  }
+
+  const formatTimestamp = (value?: string | null) => {
+    if (!value) return '—'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return value
+    }
+    return date.toLocaleString()
   }
 
   const scanForPorts = async () => {
@@ -75,13 +92,29 @@ export default function AnalyzePage() {
     }
   }
 
+  const handleSimulatorToggle = (checked: boolean) => {
+    setSimulateMode(checked)
+    if (checked) {
+      setSelectedPort('simulator')
+    } else if (selectedPort === 'simulator') {
+      setSelectedPort('/dev/ttyUSB0')
+    }
+  }
+
   const handleConnect = async () => {
     setConnecting(true)
     try {
-      const response = await api.connectHardware(selectedPort)
+      const response = await api.connectHardware(
+        simulateMode
+          ? {
+              simulate: true,
+              simulationFile: simulationFile || undefined
+            }
+          : { port: selectedPort }
+      )
       if (response.success) {
         await loadHardwareStatus()
-        alert('Connected to Raman spectrometer successfully!')
+        alert(response.message ?? 'Spectrometer connection established')
       } else {
         alert(`Connection failed: ${response.message}`)
       }
@@ -97,6 +130,7 @@ export default function AnalyzePage() {
     try {
       await api.disconnectHardware()
       await loadHardwareStatus()
+      setAcquisitionInfo(null)
       alert('Disconnected from spectrometer')
     } catch (error) {
       console.error('Disconnect failed:', error)
@@ -107,17 +141,24 @@ export default function AnalyzePage() {
   const handleAcquireSpectrum = async () => {
     setAcquiring(true)
     try {
-      const spectrumArray = await api.acquireSpectrum(integrationTime)
-      
+      const acquisition = await api.acquireSpectrum({
+        integrationTime,
+        simulate: simulateMode,
+        simulationFile: simulationFile || undefined
+      })
+      setAcquisitionInfo(acquisition)
+      const spectrumArray = acquisition.data
+
       // Convert to comma-separated string for display and analysis
       setSpectrumData(spectrumArray.join(', '))
-      
+
       // Automatically analyze the acquired spectrum
       await analyzeSpectrum(spectrumArray)
-      
-    } catch (error) {
+      await loadHardwareStatus()
+    } catch (error: any) {
       console.error('Spectrum acquisition failed:', error)
-      alert('Failed to acquire spectrum. Check hardware connection.')
+      const message = error?.message ?? 'Failed to acquire spectrum. Check hardware connection.'
+      alert(message)
     } finally {
       setAcquiring(false)
     }
@@ -152,6 +193,7 @@ export default function AnalyzePage() {
         return
       }
       
+      setAcquisitionInfo(null)
       await analyzeSpectrum(data)
     } catch (error) {
       console.error('Manual analysis failed:', error)
