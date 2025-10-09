@@ -32,6 +32,8 @@ export interface AnalysisResult {
   fallback_reason?: string;
   database_match_details?: Record<string, any>;
   external_api_details?: Record<string, any>;
+  trained_model_details?: Record<string, any>;
+  pretrained_model_details?: Record<string, any>;
 }
 
 export interface PredictionResult {
@@ -100,6 +102,7 @@ export interface TrainingResult {
   rf_accuracy: number;
   svm_accuracy: number;
   nn_accuracy: number;
+  pls_accuracy?: number;
   ensemble_accuracy: number;
   n_train_samples: number;
   n_val_samples: number;
@@ -107,6 +110,14 @@ export interface TrainingResult {
   n_classes: number;
   classification_report: Record<string, any>;
   confusion_matrix: number[][];
+  training_time: number;
+}
+
+export interface TrainingStatus {
+  is_training: boolean;
+  progress?: number;
+  model_exists: boolean;
+  last_trained?: string;
 }
 
 export interface SpectralFeatures {
@@ -153,6 +164,20 @@ export interface AcquisitionResponse {
   acquired_at: string;
   port?: string | null;
   simulation_file?: string | null;
+}
+
+export interface ReferenceSpectrum {
+  id: number;
+  compound_name: string;
+  chemical_formula?: string;
+  cas_number?: string;
+  measurement_conditions?: string;
+  laser_wavelength?: number;
+  integration_time?: number;
+  acquisition_date?: string;
+  spectrum_data: number[];
+  preprocessed_spectrum?: number[] | null;
+  metadata?: Record<string, any>;
 }
 
 // UI State types

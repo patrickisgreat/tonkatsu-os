@@ -219,6 +219,31 @@ class HardwareStatus(BaseModel):
     data_points: Optional[int] = None
 
 
+class ReferenceSpectrumRequest(BaseModel):
+    hints: List[str] = Field(..., min_length=1, description="List of compound names or functional group hints")
+    functional_groups: Optional[List[str]] = Field(
+        default=None, description="Optional functional group descriptors"
+    )
+    limit: int = Field(10, ge=1, le=50, description="Maximum number of spectra to return")
+    include_preprocessed: bool = Field(
+        True, description="Include preprocessed spectra when available"
+    )
+
+
+class ReferenceSpectrum(BaseModel):
+    id: int
+    compound_name: str
+    chemical_formula: Optional[str]
+    cas_number: Optional[str]
+    measurement_conditions: Optional[str]
+    laser_wavelength: Optional[float]
+    integration_time: Optional[float]
+    acquisition_date: Optional[datetime]
+    spectrum_data: List[float]
+    preprocessed_spectrum: Optional[List[float]] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
 # Data integration models
 class RRUFFDownloadRequest(BaseModel):
     max_spectra: int = Field(50, ge=1, le=1000, description="Maximum number of spectra to download")

@@ -2,7 +2,9 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { SpectrumPreview } from '@/components/SpectrumPreview'
 import { api } from '@/utils/api'
+import type { DatabaseStats, Spectrum, TrainingResult, TrainingStatus } from '@/types/spectrum'
 
 export default function TrainingPage() {
   const [isTraining, setIsTraining] = useState(false)
@@ -12,25 +14,219 @@ export default function TrainingPage() {
     validation_split: 0.2,
     optimize_hyperparams: false
   })
+  const [lastTrainingResult, setLastTrainingResult] = useState<TrainingResult | null>(null)
 
-  const { data: status, refetch: refetchStatus } = useQuery({
+  const formatTimestamp = (value?: string) => {
+    if (!value) return '—'
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  }
+
+  const formatPercent = (value?: number) =>
+    typeof value === 'number' ? `${(value * 100).toFixed(1)}%` : '—'
+
+  const formatSeconds = (value?: number) =>
+    typeof value === 'number' ? `${value.toFixed(1)} s` : '—'
+
+  const {
+    data: status,
+    refetch: refetchStatus,
+  } = useQuery<TrainingStatus>({
     queryKey: ['training-status'],
     queryFn: () => api.getTrainingStatus(),
     refetchInterval: isTraining ? 2000 : false
   })
 
+  const {
+    data: modelMetrics,
+    isLoading: metricsLoading,
+    error: metricsError,
+    refetch: refetchMetrics,
+  } = useQuery<Record<string, any>>({
+    queryKey: ['model-metrics'],
+    queryFn: () => api.getModelMetrics(),
+  })
+
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    error: statsError,
+  } = useQuery<DatabaseStats>({
+    queryKey: ['database-stats'],
+    queryFn: () => api.getDatabaseStats(),
+  })
+
+  const topCompound = stats?.top_compounds?.[0]?.[0] as string | undefined
+
+  const {
+    data: previewSpectrum,
+    isLoading: previewLoading,
+    error: previewError,
+  } = useQuery<Spectrum | null>({
+    queryKey: ['preview-spectrum', topCompound],
+    queryFn: async () => {
+      if (!topCompound) return null
+      const results = await api.searchSpectra(topCompound)
+      return results[0] ?? null
+    },
+    enabled: Boolean(topCompound),
+  })
+
+  const previewSpectrumData =
+    previewSpectrum?.preprocessed_spectrum && previewSpectrum.preprocessed_spectrum.length > 0
+      ? previewSpectrum.preprocessed_spectrum
+      : previewSpectrum?.spectrum_data
+
+  const topCompoundCount = stats?.top_compounds?.[0]?.[1] as number | undefined
+  const datasetEmpty = (stats?.total_spectra ?? 0) === 0
+  const ensembleAccuracy =
+    typeof lastTrainingResult?.ensemble_accuracy === 'number'
+      ? lastTrainingResult.ensemble_accuracy
+      : typeof modelMetrics?.ensemble_accuracy === 'number'
+      ? (modelMetrics.ensemble_accuracy as number)
+      : undefined
+  const rfAccuracy =
+    typeof lastTrainingResult?.rf_accuracy === 'number'
+      ? lastTrainingResult.rf_accuracy
+      : typeof modelMetrics?.rf_accuracy === 'number'
+      ? (modelMetrics.rf_accuracy as number)
+      : undefined
+  const svmAccuracy =
+    typeof lastTrainingResult?.svm_accuracy === 'number'
+      ? lastTrainingResult.svm_accuracy
+      : typeof modelMetrics?.svm_accuracy === 'number'
+      ? (modelMetrics.svm_accuracy as number)
+      : undefined
+  const nnAccuracy =
+    typeof lastTrainingResult?.nn_accuracy === 'number'
+      ? lastTrainingResult.nn_accuracy
+      : typeof modelMetrics?.nn_accuracy === 'number'
+      ? (modelMetrics.nn_accuracy as number)
+      : undefined
+  const plsAccuracy =
+    typeof lastTrainingResult?.pls_accuracy === 'number'
+      ? lastTrainingResult.pls_accuracy
+      : typeof modelMetrics?.pls_accuracy === 'number'
+      ? (modelMetrics.pls_accuracy as number)
+      : undefined
+  const trainingTime =
+    typeof lastTrainingResult?.training_time === 'number'
+      ? lastTrainingResult.training_time
+      : typeof modelMetrics?.training_time === 'number'
+      ? (modelMetrics.training_time as number)
+      : undefined
+  const nTrainSamples =
+    lastTrainingResult?.n_train_samples ?? (modelMetrics?.n_train_samples as number | undefined)
+  const nValSamples =
+    lastTrainingResult?.n_val_samples ?? (modelMetrics?.n_val_samples as number | undefined)
+  const nClasses =
+    lastTrainingResult?.n_classes ?? (modelMetrics?.n_classes as number | undefined)
+  const metricsTimestamp =
+    (typeof modelMetrics?.timestamp === 'string' ? modelMetrics.timestamp : undefined) ??
+    status?.last_trained
+
   const startTraining = async () => {
     setIsTraining(true)
     try {
       const result = await api.trainModels(trainingConfig)
-      console.log('Training result:', result)
-      await refetchStatus()
+      setLastTrainingResult(result)
+      await Promise.all([refetchStatus(), refetchMetrics()])
     } catch (error) {
       console.error('Training failed:', error)
       alert('Training failed. Please check the console for details.')
     } finally {
       setIsTraining(false)
     }
+  }
+
+  const renderPerformanceContent = () => {
+    if (metricsLoading) {
+      return (
+        <div className="flex items-center justify-center py-10 text-sm text-gray-500">
+          Loading performance metrics...
+        </div>
+      )
+    }
+
+    if (metricsError) {
+      return (
+        <div className="text-sm text-red-600">
+          Failed to load metrics. Please try again later.
+        </div>
+      )
+    }
+
+    if (!modelMetrics && !lastTrainingResult) {
+      return (
+        <div className="text-sm text-gray-500">
+          Train the model to generate performance metrics.
+        </div>
+      )
+    }
+
+    return (
+      <>
+        <div className="grid grid-cols-2 gap-4 text-center">
+          <div className="rounded-lg bg-primary-50 p-4">
+            <p className="text-sm text-gray-600">Ensemble</p>
+            <p className="text-2xl font-semibold text-primary-700">
+              {formatPercent(ensembleAccuracy)}
+            </p>
+          </div>
+          <div className="rounded-lg bg-blue-50 p-4">
+            <p className="text-sm text-gray-600">Random Forest</p>
+            <p className="text-2xl font-semibold text-blue-700">
+              {formatPercent(rfAccuracy)}
+            </p>
+          </div>
+          <div className="rounded-lg bg-green-50 p-4">
+            <p className="text-sm text-gray-600">SVM</p>
+            <p className="text-2xl font-semibold text-green-700">
+              {formatPercent(svmAccuracy)}
+            </p>
+          </div>
+          <div className="rounded-lg bg-purple-50 p-4">
+            <p className="text-sm text-gray-600">Neural Network</p>
+            <p className="text-2xl font-semibold text-purple-700">
+              {formatPercent(nnAccuracy)}
+            </p>
+          </div>
+          {plsAccuracy !== undefined && (
+            <div className="rounded-lg bg-yellow-50 p-4 col-span-2">
+              <p className="text-sm text-gray-600">PLS Regression</p>
+              <p className="text-2xl font-semibold text-yellow-700">
+                {formatPercent(plsAccuracy)}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 text-sm text-gray-700">
+          <div className="rounded-lg bg-gray-50 p-3">
+            <p className="font-medium text-gray-900">Training Time</p>
+            <p>{formatSeconds(trainingTime)}</p>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-3">
+            <p className="font-medium text-gray-900">Classes</p>
+            <p>{nClasses ?? '—'}</p>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-3">
+            <p className="font-medium text-gray-900">Train Samples</p>
+            <p>{nTrainSamples ?? '—'}</p>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-3">
+            <p className="font-medium text-gray-900">Validation Samples</p>
+            <p>{nValSamples ?? '—'}</p>
+          </div>
+        </div>
+
+        {lastTrainingResult && (
+          <p className="text-xs text-gray-500">
+            Metrics reflect the most recent training run.
+          </p>
+        )}
+      </>
+    )
   }
 
   return (
@@ -140,7 +336,7 @@ export default function TrainingPage() {
                   </span>
                 </div>
 
-                {status.progress !== null && (
+                {status.progress != null && (
                   <div>
                     <div className="flex justify-between text-sm text-gray-700 mb-1">
                       <span>Progress</span>
@@ -152,6 +348,12 @@ export default function TrainingPage() {
                         style={{ width: `${(status.progress || 0) * 100}%` }}
                       />
                     </div>
+                  </div>
+                )}
+
+                {status.last_trained && (
+                  <div className="text-xs text-gray-500">
+                    Last trained: {formatTimestamp(status.last_trained)}
                   </div>
                 )}
 
@@ -216,6 +418,58 @@ export default function TrainingPage() {
           </div>
         </div>
       </div>
+
+    <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="card">
+        <div className="card-header">
+          <div>
+            <h2 className="text-lg font-medium">Model Performance</h2>
+            {metricsTimestamp && (
+              <p className="text-sm text-gray-600 mt-1">
+                Last update: {formatTimestamp(metricsTimestamp)}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="card-content space-y-4">{renderPerformanceContent()}</div>
+      </div>
+
+      <SpectrumPreview
+        className="h-full"
+        title={topCompound ? `Training Preview: ${topCompound}` : 'Training Dataset Preview'}
+        subtitle={
+          topCompound
+            ? `Most represented compound${topCompoundCount ? ` (${topCompoundCount} spectra)` : ''}`
+            : datasetEmpty
+            ? 'Import spectra to start training'
+            : 'Add spectra or select a compound to view a preview'
+        }
+        spectrumData={previewSpectrumData}
+        loading={statsLoading || previewLoading}
+        emptyMessage={
+          previewError
+            ? 'Unable to load preview spectrum.'
+            : datasetEmpty
+            ? 'Add spectra to your database to preview training data.'
+            : 'Preview unavailable for this compound.'
+        }
+        footer={
+          previewSpectrum ? (
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <span>
+                <span className="font-semibold">Laser:</span> {previewSpectrum.laser_wavelength ?? '—'} nm
+              </span>
+              <span>
+                <span className="font-semibold">Integration:</span> {previewSpectrum.integration_time ?? '—'} ms
+              </span>
+              <span className="col-span-2">
+                <span className="font-semibold">Source:</span> {previewSpectrum.source}
+              </span>
+            </div>
+          ) : undefined
+        }
+      />
     </div>
+  </div>
   )
 }

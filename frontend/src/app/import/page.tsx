@@ -1,11 +1,47 @@
 'use client'
 
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { SpectrumPreview } from '@/components/SpectrumPreview'
 import { api } from '@/utils/api'
+import type { DatabaseStats, Spectrum } from '@/types/spectrum'
 
 export default function ImportPage() {
   const [dragActive, setDragActive] = useState(false)
   const [importStatus, setImportStatus] = useState<string>('')
+
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    error: statsError,
+  } = useQuery<DatabaseStats>({
+    queryKey: ['database-stats'],
+    queryFn: () => api.getDatabaseStats(),
+  })
+
+  const topCompound = stats?.top_compounds?.[0]?.[0] as string | undefined
+
+  const {
+    data: previewSpectrum,
+    isLoading: previewLoading,
+    error: previewError,
+  } = useQuery<Spectrum | null>({
+    queryKey: ['preview-spectrum', topCompound],
+    queryFn: async () => {
+      if (!topCompound) return null
+      const results = await api.searchSpectra(topCompound)
+      return results[0] ?? null
+    },
+    enabled: Boolean(topCompound),
+  })
+
+  const previewSpectrumData =
+    previewSpectrum?.preprocessed_spectrum && previewSpectrum.preprocessed_spectrum.length > 0
+      ? previewSpectrum.preprocessed_spectrum
+      : previewSpectrum?.spectrum_data
+
+  const topCompoundCount = stats?.top_compounds?.[0]?.[1] as number | undefined
+  const datasetEmpty = (stats?.total_spectra ?? 0) === 0
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -221,19 +257,97 @@ export default function ImportPage() {
         </div>
       </div>
 
-      {/* Import History */}
-      <div className="mt-8">
+      <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="card">
           <div className="card-header">
-            <h2 className="text-lg font-medium">Recent Imports</h2>
+            <h2 className="text-lg font-medium">Database Snapshot</h2>
           </div>
-          <div className="card-content">
-            <div className="text-center py-8 text-gray-500">
-              <p>No recent imports</p>
-              <p className="text-sm mt-1">Imported files will appear here</p>
-            </div>
+          <div className="card-content space-y-4">
+            {statsLoading ? (
+              <div className="flex items-center justify-center py-10 text-sm text-gray-500">
+                Loading dataset stats...
+              </div>
+            ) : statsError ? (
+              <div className="text-sm text-red-600">
+                Failed to load stats. Try refreshing the page.
+              </div>
+            ) : stats ? (
+              <>
+                <div className="grid grid-cols-2 gap-4 text-center">
+                  <div className="rounded-lg bg-primary-50 p-4">
+                    <p className="text-sm text-gray-600">Total Spectra</p>
+                    <p className="text-2xl font-semibold text-primary-700">{stats.total_spectra}</p>
+                  </div>
+                  <div className="rounded-lg bg-green-50 p-4">
+                    <p className="text-sm text-gray-600">Unique Compounds</p>
+                    <p className="text-2xl font-semibold text-green-700">{stats.unique_compounds}</p>
+                  </div>
+                </div>
+
+                {stats.top_compounds && stats.top_compounds.length > 0 ? (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900 mb-2">Top Compounds</h3>
+                    <ul className="space-y-1 text-sm">
+                      {stats.top_compounds.slice(0, 5).map(([compound, count]) => (
+                        <li
+                          key={`${compound}-${count}`}
+                          className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2"
+                        >
+                          <span className="font-medium text-gray-900">{compound}</span>
+                          <span className="text-xs text-gray-600">{count} spectra</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    {datasetEmpty
+                      ? 'No spectra imported yet. Use the tools above to add your first dataset.'
+                      : 'Top compound statistics are unavailable.'}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">
+                Dataset statistics are not available at the moment.
+              </p>
+            )}
           </div>
         </div>
+
+        <SpectrumPreview
+          className="h-full"
+          title={topCompound ? `Preview: ${topCompound}` : 'Spectrum Preview'}
+          subtitle={
+            topCompound
+              ? `Top compound in database${topCompoundCount ? ` (${topCompoundCount} spectra)` : ''}`
+              : 'Import spectra to enable previews'
+          }
+          spectrumData={previewSpectrumData}
+          loading={statsLoading || previewLoading}
+          emptyMessage={
+            previewError
+              ? 'Unable to load preview spectrum.'
+              : 'No spectra found in the database yet.'
+          }
+          footer={
+            previewSpectrum ? (
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <span>
+                  <span className="font-semibold">Laser:</span>{' '}
+                  {previewSpectrum.laser_wavelength ?? '—'} nm
+                </span>
+                <span>
+                  <span className="font-semibold">Integration:</span>{' '}
+                  {previewSpectrum.integration_time ?? '—'} ms
+                </span>
+                <span className="col-span-2">
+                  <span className="font-semibold">Source:</span> {previewSpectrum.source}
+                </span>
+              </div>
+            ) : undefined
+          }
+        />
       </div>
     </div>
   )

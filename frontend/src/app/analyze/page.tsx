@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import type { KeyboardEvent } from 'react'
 import { api } from '@/utils/api'
 import { SpectralChart } from '@/components/SpectralChart'
-import type { HardwareStatus, AcquisitionResponse } from '@/types/spectrum'
+import { SpectrumPreview } from '@/components/SpectrumPreview'
+import type { HardwareStatus, AcquisitionResponse, ReferenceSpectrum } from '@/types/spectrum'
 
 interface Port {
   device: string;
@@ -13,7 +15,8 @@ interface Port {
 
 export default function AnalyzePage() {
   const [spectrumData, setSpectrumData] = useState<string>('')
-  const [analyzedSpectrumData, setAnalyzedSpectrumData] = useState<number[]>([])
+  const [rawSpectrumData, setRawSpectrumData] = useState<number[]>([])
+  const [processedSpectrumData, setProcessedSpectrumData] = useState<number[]>([])
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [hardwareStatus, setHardwareStatus] = useState<HardwareStatus | null>(null)
@@ -26,6 +29,11 @@ export default function AnalyzePage() {
   const [acquisitionInfo, setAcquisitionInfo] = useState<AcquisitionResponse | null>(null)
   const [simulateMode, setSimulateMode] = useState(false)
   const [simulationFile, setSimulationFile] = useState<string>('')
+  const [hintInput, setHintInput] = useState('')
+  const [hints, setHints] = useState<string[]>([])
+  const [referenceSpectra, setReferenceSpectra] = useState<ReferenceSpectrum[]>([])
+  const [referenceLoading, setReferenceLoading] = useState(false)
+  const [referenceError, setReferenceError] = useState<string | null>(null)
   
   // Analysis configuration
   const [analysisConfig, setAnalysisConfig] = useState({
@@ -132,6 +140,8 @@ export default function AnalyzePage() {
       await api.disconnectHardware()
       await loadHardwareStatus()
       setAcquisitionInfo(null)
+      setRawSpectrumData([])
+      setProcessedSpectrumData([])
       alert('Disconnected from spectrometer')
     } catch (error) {
       console.error('Disconnect failed:', error)
@@ -142,6 +152,7 @@ export default function AnalyzePage() {
   const handleAcquireSpectrum = async () => {
     setAcquiring(true)
     try {
+      setProcessedSpectrumData([])
       const acquisition = await api.acquireSpectrum({
         integrationTime,
         simulate: simulateMode,
@@ -168,10 +179,19 @@ export default function AnalyzePage() {
   const analyzeSpectrum = async (data: number[]) => {
     setLoading(true)
     try {
-      // Store the spectrum data for visualization
-      setAnalyzedSpectrumData(data)
-      
-      // Include analysis configuration in the request
+      setRawSpectrumData(data)
+
+      let processedData = data
+      if (analysisConfig.preprocessing) {
+        try {
+          processedData = await api.preprocessSpectrum(data)
+        } catch (error) {
+          console.error('Preprocessing failed:', error)
+          processedData = data
+        }
+      }
+      setProcessedSpectrumData(processedData)
+
       const analysisResult = await api.analyzeSpectrum(data, analysisConfig)
       setResult(analysisResult)
     } catch (error) {
@@ -195,10 +215,63 @@ export default function AnalyzePage() {
       }
       
       setAcquisitionInfo(null)
+      setProcessedSpectrumData([])
       await analyzeSpectrum(data)
     } catch (error) {
       console.error('Manual analysis failed:', error)
       alert('Analysis failed. Please check your input.')
+    }
+  }
+
+  const handleAddHint = () => {
+    const value = hintInput.trim()
+    if (!value) return
+    if (!hints.includes(value)) {
+      setHints((prev) => [...prev, value])
+    }
+    setHintInput('')
+    setReferenceError(null)
+    setReferenceSpectra([])
+  }
+
+  const handleHintKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      handleAddHint()
+    }
+  }
+
+  const handleRemoveHint = (hint: string) => {
+    setHints((prev) => {
+      const next = prev.filter((item) => item !== hint)
+      if (next.length === 0) {
+        setReferenceSpectra([])
+        setReferenceError(null)
+      }
+      return next
+    })
+  }
+
+  const handleFetchReferences = async () => {
+    if (hints.length === 0) {
+      setReferenceError('Add at least one hint to fetch reference spectra.')
+      return
+    }
+
+    setReferenceLoading(true)
+    setReferenceError(null)
+    setReferenceSpectra([])
+    try {
+      const spectra = await api.fetchReferenceSpectra(hints)
+      setReferenceSpectra(spectra)
+      if (!spectra.length) {
+        setReferenceError('No reference spectra returned yet. Integration is in progress.')
+      }
+    } catch (error) {
+      console.error('Reference lookup failed:', error)
+      setReferenceError('Failed to fetch reference spectra. Please try again later.')
+    } finally {
+      setReferenceLoading(false)
     }
   }
 
@@ -371,6 +444,67 @@ export default function AnalyzePage() {
                 <span className="text-sm font-medium">Enable preprocessing (baseline correction, smoothing)</span>
               </label>
             </div>
+
+            <div className="mt-6 border-t pt-4">
+              <h4 className="text-md font-medium text-gray-900 mb-2">Reference Hints (beta)</h4>
+              <p className="text-sm text-gray-600 mb-3">
+                Suggest suspected compounds or functional groups to target external reference libraries.
+              </p>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 space-y-2 sm:space-y-0">
+                <input
+                  type="text"
+                  value={hintInput}
+                  onChange={(e) => setHintInput(e.target.value)}
+                  onKeyDown={handleHintKeyDown}
+                  placeholder="e.g. aromatic ring, caffeine"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+                <button
+                  onClick={handleAddHint}
+                  className="btn-secondary whitespace-nowrap"
+                >
+                  Add Hint
+                </button>
+              </div>
+
+              {hints.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {hints.map((hint) => (
+                    <span
+                      key={hint}
+                      className="inline-flex items-center rounded-full bg-primary-50 px-3 py-1 text-xs text-primary-700"
+                    >
+                      {hint}
+                      <button
+                        onClick={() => handleRemoveHint(hint)}
+                        className="ml-2 text-primary-500 hover:text-primary-700"
+                        aria-label={`Remove ${hint}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={handleFetchReferences}
+                className="btn-secondary mt-4"
+                disabled={referenceLoading}
+              >
+                {referenceLoading ? 'Fetching references...' : 'Fetch Reference Spectra'}
+              </button>
+
+              {referenceError && (
+                <p className="mt-2 text-xs text-red-600">{referenceError}</p>
+              )}
+
+              {!referenceError && !referenceLoading && referenceSpectra.length === 0 && hints.length > 0 && (
+                <p className="mt-2 text-xs text-gray-500">
+                  No reference spectra found yet. Adjust hints or try fetching again.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -388,7 +522,15 @@ export default function AnalyzePage() {
               <>
                 {/* Hardware Status */}
                 <div className="bg-gray-50 p-4 rounded-lg">
-                  <h3 className="font-medium text-gray-900 mb-2">Hardware Status</h3>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-medium text-gray-900">Hardware Status</h3>
+                    <button
+                      onClick={() => void loadHardwareStatus()}
+                      className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                    >
+                      Refresh
+                    </button>
+                  </div>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>Connection:</span>
@@ -434,10 +576,22 @@ export default function AnalyzePage() {
                         <span className="font-medium capitalize">{hardwareStatus.last_source}</span>
                       </div>
                     )}
+                    {hardwareStatus?.simulate && hardwareStatus.simulation_file && (
+                      <div className="flex justify-between">
+                        <span>Simulation File:</span>
+                        <span className="text-xs truncate max-w-[60%]">{hardwareStatus.simulation_file}</span>
+                      </div>
+                    )}
                     {hardwareStatus?.last_acquired_at && (
                       <div className="flex justify-between">
                         <span>Last Acquisition:</span>
                         <span className="text-xs">{formatTimestamp(hardwareStatus.last_acquired_at)}</span>
+                      </div>
+                    )}
+                    {hardwareStatus?.last_communication && (
+                      <div className="flex justify-between">
+                        <span>Last Communication:</span>
+                        <span className="text-xs">{formatTimestamp(hardwareStatus.last_communication)}</span>
                       </div>
                     )}
                     {hardwareStatus?.last_error && (
@@ -603,13 +757,13 @@ export default function AnalyzePage() {
                   </div>
                 )}
 
-                {spectrumData && (
+                {rawSpectrumData.length > 0 && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Acquired Spectrum (first 10 points)
                     </label>
                     <div className="text-xs font-mono bg-gray-100 p-2 rounded">
-                      {spectrumData.split(',').slice(0, 10).join(', ')}...
+                      {rawSpectrumData.slice(0, 10).map((value) => value.toFixed(2)).join(', ')}...
                     </div>
                   </div>
                 )}
@@ -658,11 +812,25 @@ export default function AnalyzePage() {
                   </p>
                 </div>
 
-                {/* Spectral Chart */}
-                {analyzedSpectrumData.length > 0 && (
+                {/* Spectral Charts */}
+                {rawSpectrumData.length > 0 && (
+                  <div className="bg-white border rounded-lg p-4">
+                    <h4 className="font-medium text-gray-900 mb-4">Raw Spectrum</h4>
+                    <SpectralChart
+                      spectrumData={rawSpectrumData}
+                      compoundName={acquisitionInfo?.source === 'simulator' ? 'Simulator Capture' : 'Hardware Capture'}
+                      showPeaks={false}
+                      height={320}
+                      color="rgb(59, 130, 246)"
+                      backgroundColor="rgba(59, 130, 246, 0.08)"
+                    />
+                  </div>
+                )}
+
+                {processedSpectrumData.length > 0 && (
                   <div className="bg-white border rounded-lg p-4">
                     <h4 className="font-medium text-gray-900 mb-4">
-                      Analyzed Spectrum
+                      Processed Spectrum
                       {acquisitionInfo && (
                         <span className="ml-2 text-xs uppercase tracking-wide text-gray-500">
                           {acquisitionInfo.source}
@@ -670,7 +838,7 @@ export default function AnalyzePage() {
                       )}
                     </h4>
                     <SpectralChart
-                      spectrumData={analyzedSpectrumData}
+                      spectrumData={processedSpectrumData}
                       compoundName={result.predicted_compound}
                       showPeaks={true}
                       height={400}
@@ -729,6 +897,59 @@ export default function AnalyzePage() {
                     </p>
                   </div>
                 </div>
+
+                {referenceSpectra.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-gray-900 mb-3">Reference Spectra (beta)</h4>
+                    <div className="grid grid-cols-1 gap-4">
+                      {referenceSpectra.slice(0, 2).map((reference) => {
+                        const previewData =
+                          reference.preprocessed_spectrum && reference.preprocessed_spectrum.length > 0
+                            ? reference.preprocessed_spectrum
+                            : reference.spectrum_data
+                        const subtitle =
+                          reference.measurement_conditions ||
+                          (reference.metadata?.source as string | undefined) ||
+                          'Reference library match'
+
+                        return (
+                          <SpectrumPreview
+                            key={`reference-${reference.id}`}
+                            title={reference.compound_name}
+                            subtitle={subtitle}
+                            spectrumData={previewData}
+                            showPeaks={false}
+                            color="rgb(99, 102, 241)"
+                            backgroundColor="rgba(99, 102, 241, 0.1)"
+                            footer={
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <span>
+                                  <span className="font-semibold">Laser:</span>{' '}
+                                  {reference.laser_wavelength ?? '—'} nm
+                                </span>
+                                <span>
+                                  <span className="font-semibold">Integration:</span>{' '}
+                                  {reference.integration_time ?? '—'} ms
+                                </span>
+                                {reference.metadata?.dataset_zip && (
+                                  <span className="col-span-2 truncate">
+                                    <span className="font-semibold">Source:</span>{' '}
+                                    {reference.metadata.dataset_zip}
+                                  </span>
+                                )}
+                              </div>
+                            }
+                          />
+                        )
+                      })}
+                    </div>
+                    {referenceSpectra.length > 2 && (
+                      <p className="mt-2 text-xs text-gray-500">
+                        Showing first 2 matches. Refine hints to narrow results.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center py-8 text-gray-500">
