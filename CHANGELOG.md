@@ -1,3 +1,11 @@
+## [1.1.1](https://github.com/patrickisgreat/tonkatsu-os/compare/v1.1.0...v1.1.1) (2025-10-09)
+
+
+### Bug Fixes
+
+* wiring up api to front end and adding type checks ([e71b2ba](https://github.com/patrickisgreat/tonkatsu-os/commit/e71b2ba9e1ab3cf9bc37efaf030288d474698a2a))
+* yay frontend working? ([e1aa5e1](https://github.com/patrickisgreat/tonkatsu-os/commit/e1aa5e1b863fb4d429f850d045b28ff9f423ba44))
+
 # [1.1.0](https://github.com/patrickisgreat/tonkatsu-os/compare/v1.0.0...v1.1.0) (2025-10-08)
 
 
