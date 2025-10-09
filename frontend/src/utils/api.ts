@@ -11,6 +11,7 @@ import {
   ApiResponse,
   AcquisitionResponse,
   HardwareStatus,
+  TrainingStatus,
 } from '@/types/spectrum'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -54,6 +55,20 @@ export const api = {
       spectrum_data: spectrumData,
       top_k: topK
     })
+  },
+
+  // Reference spectrum helpers (placeholder until backend integration lands)
+  async fetchReferenceSpectra(hints: string[], functionalGroups?: string[]): Promise<Spectrum[]> {
+    if ((!hints || hints.length === 0) && (!functionalGroups || functionalGroups.length === 0)) {
+      return []
+    }
+
+    console.warn(
+      'fetchReferenceSpectra is a placeholder. Backend integration is pending.',
+      { hints, functionalGroups }
+    )
+
+    return []
   },
 
   // Analysis operations
@@ -152,11 +167,7 @@ export const api = {
     return apiClient.post('/training/train', config || {})
   },
 
-  async getTrainingStatus(): Promise<{ 
-    is_training: boolean; 
-    progress?: number; 
-    model_exists: boolean 
-  }> {
+  async getTrainingStatus(): Promise<TrainingStatus> {
     return apiClient.get('/training/status')
   },
 
