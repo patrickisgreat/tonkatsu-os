@@ -166,6 +166,20 @@ export interface AcquisitionResponse {
   simulation_file?: string | null;
 }
 
+export interface ReferenceSpectrum {
+  id: number;
+  compound_name: string;
+  chemical_formula?: string;
+  cas_number?: string;
+  measurement_conditions?: string;
+  laser_wavelength?: number;
+  integration_time?: number;
+  acquisition_date?: string;
+  spectrum_data: number[];
+  preprocessed_spectrum?: number[] | null;
+  metadata?: Record<string, any>;
+}
+
 // UI State types
 export interface LoadingState {
   isLoading: boolean;

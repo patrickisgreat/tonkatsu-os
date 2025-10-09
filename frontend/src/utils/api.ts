@@ -12,6 +12,7 @@ import {
   AcquisitionResponse,
   HardwareStatus,
   TrainingStatus,
+  ReferenceSpectrum,
 } from '@/types/spectrum'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -57,18 +58,18 @@ export const api = {
     })
   },
 
-  // Reference spectrum helpers (placeholder until backend integration lands)
-  async fetchReferenceSpectra(hints: string[], functionalGroups?: string[]): Promise<Spectrum[]> {
+  // Reference spectrum helpers
+  async fetchReferenceSpectra(hints: string[], functionalGroups?: string[]): Promise<ReferenceSpectrum[]> {
     if ((!hints || hints.length === 0) && (!functionalGroups || functionalGroups.length === 0)) {
       return []
     }
 
-    console.warn(
-      'fetchReferenceSpectra is a placeholder. Backend integration is pending.',
-      { hints, functionalGroups }
-    )
-
-    return []
+    return apiClient.post('/reference/spectra', {
+      hints,
+      functional_groups: functionalGroups,
+      limit: 10,
+      include_preprocessed: true,
+    })
   },
 
   // Analysis operations

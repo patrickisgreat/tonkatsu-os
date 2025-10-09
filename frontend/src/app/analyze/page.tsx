@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import type { KeyboardEvent } from 'react'
 import { api } from '@/utils/api'
 import { SpectralChart } from '@/components/SpectralChart'
-import type { HardwareStatus, AcquisitionResponse, Spectrum } from '@/types/spectrum'
+import { SpectrumPreview } from '@/components/SpectrumPreview'
+import type { HardwareStatus, AcquisitionResponse, ReferenceSpectrum } from '@/types/spectrum'
 
 interface Port {
   device: string;
@@ -30,7 +31,7 @@ export default function AnalyzePage() {
   const [simulationFile, setSimulationFile] = useState<string>('')
   const [hintInput, setHintInput] = useState('')
   const [hints, setHints] = useState<string[]>([])
-  const [referenceSpectra, setReferenceSpectra] = useState<Spectrum[]>([])
+  const [referenceSpectra, setReferenceSpectra] = useState<ReferenceSpectrum[]>([])
   const [referenceLoading, setReferenceLoading] = useState(false)
   const [referenceError, setReferenceError] = useState<string | null>(null)
   
@@ -230,6 +231,7 @@ export default function AnalyzePage() {
     }
     setHintInput('')
     setReferenceError(null)
+    setReferenceSpectra([])
   }
 
   const handleHintKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -240,7 +242,14 @@ export default function AnalyzePage() {
   }
 
   const handleRemoveHint = (hint: string) => {
-    setHints((prev) => prev.filter((item) => item !== hint))
+    setHints((prev) => {
+      const next = prev.filter((item) => item !== hint)
+      if (next.length === 0) {
+        setReferenceSpectra([])
+        setReferenceError(null)
+      }
+      return next
+    })
   }
 
   const handleFetchReferences = async () => {
@@ -251,6 +260,7 @@ export default function AnalyzePage() {
 
     setReferenceLoading(true)
     setReferenceError(null)
+    setReferenceSpectra([])
     try {
       const spectra = await api.fetchReferenceSpectra(hints)
       setReferenceSpectra(spectra)
@@ -489,19 +499,9 @@ export default function AnalyzePage() {
                 <p className="mt-2 text-xs text-red-600">{referenceError}</p>
               )}
 
-              {referenceSpectra.length > 0 && (
-                <div className="mt-3 space-y-1 text-xs text-gray-600">
-                  {referenceSpectra.slice(0, 3).map((spectrum) => (
-                    <div key={spectrum.id}>
-                      {spectrum.compound_name} • {spectrum.source}
-                    </div>
-                  ))}
-                </div>
-              )}
-
               {!referenceError && !referenceLoading && referenceSpectra.length === 0 && hints.length > 0 && (
                 <p className="mt-2 text-xs text-gray-500">
-                  Reference matching will use these hints in a future release. For now, hints are stored locally.
+                  No reference spectra found yet. Adjust hints or try fetching again.
                 </p>
               )}
             </div>
@@ -897,6 +897,59 @@ export default function AnalyzePage() {
                     </p>
                   </div>
                 </div>
+
+                {referenceSpectra.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-gray-900 mb-3">Reference Spectra (beta)</h4>
+                    <div className="grid grid-cols-1 gap-4">
+                      {referenceSpectra.slice(0, 2).map((reference) => {
+                        const previewData =
+                          reference.preprocessed_spectrum && reference.preprocessed_spectrum.length > 0
+                            ? reference.preprocessed_spectrum
+                            : reference.spectrum_data
+                        const subtitle =
+                          reference.measurement_conditions ||
+                          (reference.metadata?.source as string | undefined) ||
+                          'Reference library match'
+
+                        return (
+                          <SpectrumPreview
+                            key={`reference-${reference.id}`}
+                            title={reference.compound_name}
+                            subtitle={subtitle}
+                            spectrumData={previewData}
+                            showPeaks={false}
+                            color="rgb(99, 102, 241)"
+                            backgroundColor="rgba(99, 102, 241, 0.1)"
+                            footer={
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <span>
+                                  <span className="font-semibold">Laser:</span>{' '}
+                                  {reference.laser_wavelength ?? '—'} nm
+                                </span>
+                                <span>
+                                  <span className="font-semibold">Integration:</span>{' '}
+                                  {reference.integration_time ?? '—'} ms
+                                </span>
+                                {reference.metadata?.dataset_zip && (
+                                  <span className="col-span-2 truncate">
+                                    <span className="font-semibold">Source:</span>{' '}
+                                    {reference.metadata.dataset_zip}
+                                  </span>
+                                )}
+                              </div>
+                            }
+                          />
+                        )
+                      })}
+                    </div>
+                    {referenceSpectra.length > 2 && (
+                      <p className="mt-2 text-xs text-gray-500">
+                        Showing first 2 matches. Refine hints to narrow results.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center py-8 text-gray-500">
