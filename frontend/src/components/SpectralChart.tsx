@@ -1,33 +1,24 @@
 'use client'
 
 import React from 'react'
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler,
-  ChartOptions,
-  ChartData,
-  ScriptableContext
-} from 'chart.js'
-import { Line } from 'react-chartjs-2'
+import dynamic from 'next/dynamic'
+import type { Data, Layout, Config } from 'plotly.js'
 
-// Register Chart.js components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-)
+// Dynamically import Plotly to avoid SSR issues
+const Plot = dynamic(
+  async () => {
+    const Plotly = await import('plotly.js-dist-min')
+    const createPlotlyComponent = (await import('react-plotly.js/factory')).default
+    return createPlotlyComponent(Plotly.default || Plotly)
+  },
+  { ssr: false }
+) as React.ComponentType<{
+  data: Data[]
+  layout: Partial<Layout>
+  config: Partial<Config>
+  style?: React.CSSProperties
+  useResizeHandler?: boolean
+}>
 
 interface SpectralChartProps {
   spectrumData: number[]
@@ -46,7 +37,7 @@ export const SpectralChart: React.FC<SpectralChartProps> = ({
   showPeaks = false,
   height = 400,
   color = 'rgb(59, 130, 246)', // blue-500
-  backgroundColor = 'rgba(59, 130, 246, 0.1)'
+  backgroundColor = 'rgba(59, 130, 246, 0.2)'
 }) => {
   // Generate wavelength/wavenumber axis
   const generateXAxis = (dataLength: number, range: [number, number]): number[] => {
@@ -62,13 +53,13 @@ export const SpectralChart: React.FC<SpectralChartProps> = ({
     const minThreshold = maxVal * threshold
 
     for (let i = 1; i < data.length - 1; i++) {
-      if (data[i] > data[i - 1] && 
-          data[i] > data[i + 1] && 
+      if (data[i] > data[i - 1] &&
+          data[i] > data[i + 1] &&
           data[i] > minThreshold) {
         peaks.push(i)
       }
     }
-    
+
     // Return top 10 peaks sorted by intensity
     return peaks
       .sort((a, b) => data[b] - data[a])
@@ -78,180 +69,139 @@ export const SpectralChart: React.FC<SpectralChartProps> = ({
   const xAxisData = generateXAxis(spectrumData.length, wavelengthRange)
   const peaks = showPeaks ? findPeaks(spectrumData) : []
 
-  const chartData: ChartData<'line'> = {
-    labels: xAxisData.map(x => x.toFixed(0)),
-    datasets: [
-      {
-        label: compoundName,
-        data: spectrumData,
-        borderColor: color,
-        backgroundColor: backgroundColor,
-        borderWidth: 2,
-        fill: true,
-        tension: 0.1,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        pointBackgroundColor: color,
-        pointBorderColor: '#ffffff',
-        pointBorderWidth: 2,
-      },
-      // Peak markers
-      ...(showPeaks && peaks.length > 0 ? [{
-        label: 'Peaks',
-        data: xAxisData.map((_, i) => {
-          const isPeak = peaks.includes(i)
-          return isPeak ? spectrumData[i] : null
-        }),
-        borderColor: 'rgb(239, 68, 68)', // red-500
-        backgroundColor: 'rgba(239, 68, 68, 0.8)',
-        borderWidth: 0,
-        pointRadius: (context: any) => {
-          return peaks.includes(context.dataIndex) ? 6 : 0
-        },
-        pointHoverRadius: 8,
-        showLine: false,
-        pointStyle: 'triangle' as const,
-      }] : [])
-    ]
+  // Plotly trace for main spectrum
+  const spectrumTrace: Data = {
+    x: xAxisData,
+    y: spectrumData,
+    type: 'scatter',
+    mode: 'lines',
+    name: compoundName,
+    line: {
+      color: color,
+      width: 2,
+    },
+    fill: 'tozeroy',
+    fillcolor: backgroundColor,
+    hovertemplate: 'Wavenumber: %{x:.1f} cm⁻¹<br>Intensity: %{y:.3f}<extra></extra>',
   }
 
-  const chartOptions: ChartOptions<'line'> = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'top' as const,
-        labels: {
-          font: {
-            size: 12,
-            family: 'Inter, sans-serif'
-          },
-          color: '#374151', // gray-700
-          usePointStyle: true,
-        }
+  // Plotly trace for peaks
+  const peaksTrace: Data = {
+    x: peaks.map(i => xAxisData[i]),
+    y: peaks.map(i => spectrumData[i]),
+    type: 'scatter',
+    mode: 'markers',
+    name: 'Peaks',
+    marker: {
+      color: 'rgb(239, 68, 68)',
+      size: 12,
+      symbol: 'triangle-up',
+      line: {
+        color: 'white',
+        width: 1,
       },
+    },
+    hovertemplate: 'Peak: %{x:.0f} cm⁻¹<br>Intensity: %{y:.3f}<extra></extra>',
+  }
+
+  const traces: Data[] = showPeaks && peaks.length > 0
+    ? [spectrumTrace, peaksTrace]
+    : [spectrumTrace]
+
+  const layout: Partial<Layout> = {
+    title: {
+      text: `Raman Spectrum - ${compoundName}`,
+      font: {
+        size: 16,
+        color: '#111827',
+        family: 'Inter, sans-serif',
+      },
+    },
+    xaxis: {
       title: {
-        display: true,
-        text: `Raman Spectrum - ${compoundName}`,
+        text: 'Raman Shift (cm⁻¹)',
         font: {
-          size: 16,
-          weight: 'bold',
-          family: 'Inter, sans-serif'
+          size: 14,
+          color: '#374151',
+          family: 'Inter, sans-serif',
         },
-        color: '#111827', // gray-900
-        padding: 20
       },
-      tooltip: {
-        mode: 'index',
-        intersect: false,
-        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-        titleColor: '#ffffff',
-        bodyColor: '#ffffff',
-        borderColor: color,
-        borderWidth: 1,
-        cornerRadius: 6,
-        titleFont: {
-          size: 12,
-          weight: 'bold'
-        },
-        bodyFont: {
-          size: 11
-        },
-        callbacks: {
-          title: (context) => {
-            const dataIndex = context[0]?.dataIndex ?? 0
-            return `Wavenumber: ${xAxisData[dataIndex]?.toFixed(1) ?? ''} cm⁻¹`
-          },
-          label: (context) => {
-            return `Intensity: ${context.parsed.y.toFixed(3)}`
-          }
-        }
-      }
-    },
-    scales: {
-      x: {
-        display: true,
-        title: {
-          display: true,
-          text: 'Raman Shift (cm⁻¹)',
-          font: {
-            size: 14,
-            weight: 'bold',
-            family: 'Inter, sans-serif'
-          },
-          color: '#374151' // gray-700
-        },
-        grid: {
-          display: true,
-          color: 'rgba(156, 163, 175, 0.2)', // gray-400 with opacity
-          drawOnChartArea: true,
-          drawTicks: true,
-        },
-        ticks: {
-          color: '#6B7280', // gray-500
-          font: {
-            size: 11,
-            family: 'Inter, sans-serif'
-          },
-          maxTicksLimit: 10,
-          callback: function(value) {
-            const numValue = Number(value)
-            return numValue % 500 === 0 ? numValue.toString() : ''
-          }
-        }
+      tickfont: {
+        size: 11,
+        color: '#6B7280',
       },
-      y: {
-        display: true,
-        title: {
-          display: true,
-          text: 'Intensity (a.u.)',
-          font: {
-            size: 14,
-            weight: 'bold',
-            family: 'Inter, sans-serif'
-          },
-          color: '#374151' // gray-700
+      gridcolor: 'rgba(156, 163, 175, 0.2)',
+      zeroline: false,
+    },
+    yaxis: {
+      title: {
+        text: 'Intensity (a.u.)',
+        font: {
+          size: 14,
+          color: '#374151',
+          family: 'Inter, sans-serif',
         },
-        grid: {
-          display: true,
-          color: 'rgba(156, 163, 175, 0.2)', // gray-400 with opacity
-          drawOnChartArea: true,
-        },
-        ticks: {
-          color: '#6B7280', // gray-500
-          font: {
-            size: 11,
-            family: 'Inter, sans-serif'
-          },
-          callback: function(value) {
-            return Number(value).toFixed(2)
-          }
-        }
-      }
+      },
+      tickfont: {
+        size: 11,
+        color: '#6B7280',
+      },
+      gridcolor: 'rgba(156, 163, 175, 0.2)',
+      zeroline: false,
     },
-    interaction: {
-      mode: 'nearest',
-      axis: 'x',
-      intersect: false
+    legend: {
+      orientation: 'h',
+      yanchor: 'bottom',
+      y: 1.02,
+      xanchor: 'right',
+      x: 1,
+      font: {
+        size: 12,
+        color: '#374151',
+      },
     },
-    elements: {
-      point: {
-        hoverRadius: 6,
-        hitRadius: 6
-      }
+    margin: {
+      l: 60,
+      r: 30,
+      t: 60,
+      b: 50,
     },
-    animation: {
-      duration: 750,
-      easing: 'easeInOutQuart'
-    }
+    paper_bgcolor: 'white',
+    plot_bgcolor: 'white',
+    hovermode: 'x unified',
+    dragmode: 'zoom',
+  }
+
+  const config: Partial<Config> = {
+    displayModeBar: true,
+    modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+    displaylogo: false,
+    responsive: true,
+    scrollZoom: true,
+    toImageButtonOptions: {
+      format: 'png',
+      filename: `raman_spectrum_${compoundName.replace(/\s+/g, '_')}`,
+      height: 800,
+      width: 1200,
+      scale: 2,
+    },
   }
 
   return (
-    <div className="w-full" style={{ height: `${height}px` }}>
-      <Line data={chartData} options={chartOptions} />
-      
+    <div className="w-full flex flex-col gap-4">
+      {/* Interactive Plotly Chart */}
+      <div className="w-full bg-white rounded-lg border shadow-sm overflow-hidden">
+        <Plot
+          data={traces}
+          layout={layout}
+          config={config}
+          style={{ width: '100%', height: `${height}px` }}
+          useResizeHandler={true}
+        />
+      </div>
+
       {/* Spectrum Statistics */}
-      <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm relative z-10">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
         <div className="bg-white border p-3 rounded-lg shadow-sm">
           <div className="font-medium text-gray-700">Data Points</div>
           <div className="text-lg font-bold text-gray-900">{spectrumData.length}</div>
@@ -274,7 +224,7 @@ export const SpectralChart: React.FC<SpectralChartProps> = ({
 
       {/* Peak List */}
       {showPeaks && peaks.length > 0 && (
-        <div className="mt-4 bg-white border rounded-lg p-4 shadow-sm relative z-10">
+        <div className="bg-white border rounded-lg p-4 shadow-sm">
           <h4 className="font-medium text-gray-900 mb-3">Identified Peaks</h4>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 text-sm">
             {peaks.slice(0, 10).map((peakIdx, index) => (

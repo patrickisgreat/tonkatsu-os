@@ -183,7 +183,7 @@ export const api = {
     simulationFile?: string
   }): Promise<AcquisitionResponse> {
     return apiClient.post('/acquisition/acquire', {
-      integration_time: options?.integrationTime ?? 200,
+      integration_time: options?.integrationTime ?? 2000,
       simulate: options?.simulate ?? false,
       simulation_file: options?.simulationFile ?? null,
     })

@@ -22,7 +22,7 @@ export default function AnalyzePage() {
   const [hardwareStatus, setHardwareStatus] = useState<HardwareStatus | null>(null)
   const [availablePorts, setAvailablePorts] = useState<Port[]>([])
   const [selectedPort, setSelectedPort] = useState<string>('/dev/ttyUSB0')
-  const [integrationTime, setIntegrationTime] = useState<number>(200)
+  const [integrationTime, setIntegrationTime] = useState<number>(2000)
   const [mode, setMode] = useState<'hardware' | 'manual'>('hardware')
   const [connecting, setConnecting] = useState(false)
   const [acquiring, setAcquiring] = useState(false)
