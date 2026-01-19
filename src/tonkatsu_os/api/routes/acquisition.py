@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 
 from tonkatsu_os.hardware import (
@@ -36,6 +37,18 @@ def _get_hardware_manager() -> HardwareManager:
     return manager
 
 
+def _average_spectra(spectra: list[np.ndarray]) -> np.ndarray:
+    """Average multiple spectra with basic shape validation."""
+    if not spectra:
+        raise SpectrometerAcquisitionError("No spectra collected for averaging")
+    length = len(spectra[0])
+    for spectrum in spectra:
+        if len(spectrum) != length:
+            raise SpectrometerAcquisitionError("Spectra lengths differ during averaging")
+    stacked = np.vstack(spectra)
+    return np.mean(stacked, axis=0)
+
+
 @router.post("/acquire", response_model=AcquisitionResponse)
 async def acquire_spectrum(request: AcquisitionRequest):
     """
@@ -47,13 +60,18 @@ async def acquire_spectrum(request: AcquisitionRequest):
     """
     manager = _get_hardware_manager()
     integration_time = int(request.integration_time)
+    average_count = max(1, int(request.averages))
 
     try:
-        spectrum = manager.acquire_spectrum(
-            integration_time,
-            simulate=request.simulate,
-            simulation_file=request.simulation_file,
-        )
+        spectra: list[np.ndarray] = []
+        for _ in range(average_count):
+            spectrum = manager.acquire_spectrum(
+                integration_time,
+                simulate=request.simulate,
+                simulation_file=request.simulation_file,
+            )
+            spectra.append(np.asarray(spectrum, dtype=float))
+        spectrum = _average_spectra(spectra) if average_count > 1 else spectra[0]
     except (SpectrometerConnectionError, SpectrometerAcquisitionError) as exc:
         logger.error("Spectrometer acquisition failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -72,6 +90,7 @@ async def acquire_spectrum(request: AcquisitionRequest):
         acquired_at=acquired_at,
         port=status.get("port"),
         simulation_file=status.get("simulation_file"),
+        average_count=average_count,
     )
 
 
@@ -225,3 +244,132 @@ async def scan_ports():
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return ports
+
+
+# ---------------------------------------------------------------------
+# Dark subtraction endpoints
+# ---------------------------------------------------------------------
+@router.post("/dark/acquire", response_model=AcquisitionResponse)
+async def acquire_dark(
+    integration_time: Optional[int] = Query(
+        None, description="Integration time in ms (uses default if not specified)"
+    ),
+    averages: int = Query(1, ge=1, le=50, description="Number of scans to average"),
+):
+    """
+    Acquire a dark spectrum for background subtraction.
+
+    Block the laser beam or remove the sample before calling this endpoint.
+    The dark spectrum will be stored and can be subtracted from future acquisitions.
+    """
+    manager = _get_hardware_manager()
+    spectrometer = manager.spectrometer
+
+    if not spectrometer:
+        raise HTTPException(status_code=400, detail="Spectrometer not connected")
+
+    try:
+        if averages > 1:
+            integration_ms = int(
+                integration_time or spectrometer.config.default_integration_time
+            )
+            spectra: list[np.ndarray] = []
+            for _ in range(averages):
+                spectrum = spectrometer.acquire_spectrum(integration_ms)
+                spectra.append(np.asarray(spectrum, dtype=float))
+            dark = _average_spectra(spectra)
+            spectrometer.set_dark_spectrum(dark, integration_ms)
+        else:
+            dark = spectrometer.acquire_dark(integration_time)
+    except (SpectrometerConnectionError, SpectrometerAcquisitionError) as exc:
+        logger.error("Dark acquisition failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    status = manager.get_spectrometer_status()
+    return AcquisitionResponse(
+        data=[float(x) for x in dark.tolist()],
+        source="dark",
+        integration_time=float(integration_time or spectrometer.config.default_integration_time),
+        acquired_at=datetime.utcnow(),
+        port=status.get("port"),
+        average_count=averages,
+    )
+
+
+@router.post("/dark/clear", response_model=ApiResponse)
+async def clear_dark():
+    """Clear the stored dark spectrum."""
+    manager = _get_hardware_manager()
+    spectrometer = manager.spectrometer
+
+    if not spectrometer:
+        raise HTTPException(status_code=400, detail="Spectrometer not connected")
+
+    spectrometer.clear_dark()
+    return ApiResponse(success=True, message="Dark spectrum cleared")
+
+
+@router.get("/dark/info")
+async def get_dark_info():
+    """Get information about the stored dark spectrum."""
+    manager = _get_hardware_manager()
+    spectrometer = manager.spectrometer
+
+    if not spectrometer:
+        return {"has_dark": False, "error": "Spectrometer not connected"}
+
+    return spectrometer.get_dark_info()
+
+
+@router.post("/acquire/corrected", response_model=AcquisitionResponse)
+async def acquire_spectrum_corrected(request: AcquisitionRequest):
+    """
+    Acquire a spectrum with automatic dark subtraction.
+
+    If a dark spectrum has been acquired, it will be subtracted from the measurement.
+    Otherwise, returns the raw spectrum.
+    """
+    manager = _get_hardware_manager()
+    spectrometer = manager.spectrometer
+    integration_time = int(request.integration_time)
+    average_count = max(1, int(request.averages))
+
+    if not spectrometer:
+        raise HTTPException(status_code=400, detail="Spectrometer not connected")
+
+    try:
+        spectra: list[np.ndarray] = []
+        for _ in range(average_count):
+            spectrum = manager.acquire_spectrum(
+                integration_time,
+                simulate=request.simulate,
+                simulation_file=request.simulation_file,
+            )
+            spectra.append(np.asarray(spectrum, dtype=float))
+        spectrum = _average_spectra(spectra) if average_count > 1 else spectra[0]
+
+        # Apply dark subtraction if available
+        if spectrometer.has_dark():
+            spectrum = spectrometer.apply_dark_subtraction(spectrum)
+            dark_applied = True
+        else:
+            dark_applied = False
+
+    except (SpectrometerConnectionError, SpectrometerAcquisitionError) as exc:
+        logger.error("Spectrometer acquisition failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    status = manager.get_spectrometer_status()
+    acquired_at: datetime = status.get("last_acquired_at") or datetime.utcnow()
+    base_source = status.get("last_source") or ("simulator" if request.simulate else "hardware")
+    source = "hardware_corrected" if dark_applied and base_source == "hardware" else base_source
+
+    return AcquisitionResponse(
+        data=[float(x) for x in spectrum.tolist()],
+        source=source,
+        integration_time=float(integration_time),
+        acquired_at=acquired_at,
+        port=status.get("port"),
+        simulation_file=status.get("simulation_file"),
+        average_count=average_count,
+    )

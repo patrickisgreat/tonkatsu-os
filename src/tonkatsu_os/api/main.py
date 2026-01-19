@@ -18,7 +18,7 @@ from tonkatsu_os.hardware import HardwareManager
 
 from .models import SystemHealth
 from .state import app_state
-from .routes import acquisition, analysis, database, import_data, pretrained, reference, system, training
+from .routes import acquisition, analysis, calibration, database, import_data, pretrained, reference, system, training
 
 # Load environment variables from .env file
 def load_env_file():
@@ -142,6 +142,7 @@ async def general_exception_handler(request, exc):
 # Include routers
 app.include_router(database.router, prefix="/api/database", tags=["database"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
+app.include_router(calibration.router, prefix="/api/calibration", tags=["calibration"])
 app.include_router(import_data.router, prefix="/api/import", tags=["import"])
 app.include_router(training.router, prefix="/api/training", tags=["training"])
 app.include_router(pretrained.router, prefix="/api/pretrained", tags=["pretrained"])

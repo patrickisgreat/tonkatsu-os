@@ -194,15 +194,40 @@ class AcquisitionRequest(BaseModel):
     simulation_file: Optional[str] = Field(
         None, description="Optional path to recorded spectrum for simulator"
     )
+    averages: int = Field(1, ge=1, le=50, description="Number of scans to average")
 
 
 class AcquisitionResponse(BaseModel):
     data: List[float]
-    source: Literal["hardware", "simulator"]
+    source: Literal["hardware", "simulator", "dark", "hardware_corrected"]
     integration_time: float
     acquired_at: datetime
     port: Optional[str] = None
     simulation_file: Optional[str] = None
+    average_count: Optional[int] = None
+
+
+class CalibrationCreate(BaseModel):
+    name: str
+    instrument_id: str
+    axis_data: List[float]
+    laser_wavelength: Optional[float] = None
+    notes: Optional[str] = None
+    set_active: bool = True
+
+
+class CalibrationSummary(BaseModel):
+    id: int
+    name: str
+    instrument_id: str
+    laser_wavelength: Optional[float] = None
+    notes: Optional[str] = None
+    active: bool
+    created_at: datetime
+
+
+class CalibrationDetail(CalibrationSummary):
+    axis_data: List[float]
 
 
 class HardwareStatus(BaseModel):

@@ -13,7 +13,10 @@ from typing import Any, Dict, Optional, Sequence
 import numpy as np
 import serial
 
+# Enable debug logging for spectrometer troubleshooting
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class SpectrometerError(RuntimeError):
@@ -34,15 +37,18 @@ class SpectrometerConfig:
 
     port: str = "/dev/ttyUSB0"
     baudrate: int = 9600
-    timeout: float = 2.0
+    timeout: float = 10.0  # Increased for longer integration times + data transfer
     data_points: int = 2048
-    min_data_points: int = 100
-    default_integration_time: int = 200  # milliseconds
+    min_data_points: int = 2048  # Require full frame for reliable normalization
+    default_integration_time: int = 200  # milliseconds (lower default to avoid saturation)
     max_retries: int = 3
     retry_delay: float = 0.5  # seconds between retries
     simulate: bool = False
     simulation_file: Optional[str] = None
     response_terminator: bytes = b"\r\n"
+    # Debug logging - saves raw scan data to files for analysis
+    debug_log_dir: Optional[str] = "scan_logs"
+    debug_logging_enabled: bool = True
 
 
 class BWTekSpectrometer:
@@ -63,6 +69,9 @@ class BWTekSpectrometer:
         self._temperature: Optional[float] = None
         self._last_error: Optional[str] = None
         self._last_source: Optional[str] = None
+        # Dark spectrum for background subtraction
+        self._dark_spectrum: Optional[np.ndarray] = None
+        self._dark_integration_time: Optional[int] = None
 
     # ---------------------------------------------------------------------
     # Connection lifecycle
@@ -230,9 +239,17 @@ class BWTekSpectrometer:
                 self._serial_connection.write(b"S\r\n")
                 self._serial_connection.flush()
 
+                # Wait for acquisition to complete (integration time + buffer)
+                wait_time = (integration_time / 1000.0) + 0.5
+                logger.debug("Waiting %.2fs for acquisition to complete", wait_time)
+                time.sleep(wait_time)
+
                 raw_data = self._read_raw_response()
                 spectrum = self._parse_raw_spectrum(raw_data)
                 normalized = self._normalize_spectrum(spectrum)
+
+                # Save debug log for analysis
+                self._save_debug_log(raw_data, list(spectrum), integration_time)
 
                 self._last_communication = datetime.now()
                 self._last_source = "hardware"
@@ -246,6 +263,14 @@ class BWTekSpectrometer:
                 return normalized
             except SpectrometerAcquisitionError as exc:
                 last_exc = exc
+                # Save debug log even on error
+                if 'raw_data' in locals():
+                    self._save_debug_log(
+                        raw_data,
+                        list(spectrum) if 'spectrum' in locals() else [],
+                        integration_time,
+                        error=str(exc),
+                    )
                 logger.warning(
                     "Acquisition attempt %s/%s failed: %s",
                     attempt,
@@ -255,6 +280,14 @@ class BWTekSpectrometer:
                 time.sleep(self.config.retry_delay)
             except Exception as exc:  # pragma: no cover - hardware specific
                 last_exc = SpectrometerAcquisitionError(str(exc))
+                # Save debug log even on error
+                if 'raw_data' in locals():
+                    self._save_debug_log(
+                        raw_data,
+                        list(spectrum) if 'spectrum' in locals() else [],
+                        integration_time,
+                        error=str(exc),
+                    )
                 logger.warning(
                     "Unexpected acquisition error (%s/%s): %s",
                     attempt,
@@ -267,6 +300,104 @@ class BWTekSpectrometer:
         self._last_error = error_msg
         logger.error(error_msg)
         raise SpectrometerAcquisitionError(error_msg)
+
+    # ---------------------------------------------------------------------
+    # Dark subtraction
+    # ---------------------------------------------------------------------
+    def acquire_dark(self, integration_time: Optional[int] = None) -> np.ndarray:
+        """
+        Acquire a dark spectrum for background subtraction.
+
+        Instructions: Block the laser or remove sample before calling this.
+        The dark spectrum will be stored and automatically subtracted from
+        future acquisitions.
+        """
+        if integration_time is None:
+            integration_time = self.config.default_integration_time
+
+        logger.info("Acquiring dark spectrum (integration=%sms)...", integration_time)
+        logger.info("Make sure laser is blocked or sample is removed!")
+
+        # Acquire without dark subtraction
+        dark = self.acquire_spectrum(integration_time)
+
+        self._dark_spectrum = dark
+        self._dark_integration_time = integration_time
+
+        logger.info(
+            "Dark spectrum acquired: %d points, mean=%.1f, min=%.1f, max=%.1f",
+            len(dark), np.mean(dark), np.min(dark), np.max(dark)
+        )
+
+        return dark
+
+    def set_dark_spectrum(self, spectrum: np.ndarray, integration_time: int) -> None:
+        """Store a dark spectrum for future subtraction."""
+        self._dark_spectrum = np.asarray(spectrum, dtype=np.float32)
+        self._dark_integration_time = int(integration_time)
+        logger.info(
+            "Dark spectrum stored: %d points, mean=%.1f, min=%.1f, max=%.1f",
+            len(self._dark_spectrum),
+            float(np.mean(self._dark_spectrum)),
+            float(np.min(self._dark_spectrum)),
+            float(np.max(self._dark_spectrum)),
+        )
+
+    def clear_dark(self) -> None:
+        """Clear the stored dark spectrum."""
+        self._dark_spectrum = None
+        self._dark_integration_time = None
+        logger.info("Dark spectrum cleared")
+
+    def has_dark(self) -> bool:
+        """Check if a dark spectrum is stored."""
+        return self._dark_spectrum is not None
+
+    def get_dark_info(self) -> Dict[str, Any]:
+        """Get information about the stored dark spectrum."""
+        if self._dark_spectrum is None:
+            return {"has_dark": False}
+        return {
+            "has_dark": True,
+            "integration_time": self._dark_integration_time,
+            "data_points": len(self._dark_spectrum),
+            "mean": float(np.mean(self._dark_spectrum)),
+            "min": float(np.min(self._dark_spectrum)),
+            "max": float(np.max(self._dark_spectrum)),
+        }
+
+    def apply_dark_subtraction(self, spectrum: np.ndarray) -> np.ndarray:
+        """
+        Subtract the dark spectrum from a measurement.
+
+        If the spectra have different lengths, interpolates the dark spectrum.
+        """
+        if self._dark_spectrum is None:
+            logger.warning("No dark spectrum available, returning original")
+            return spectrum
+
+        dark = self._dark_spectrum
+
+        # Handle length mismatch by interpolation
+        if len(dark) != len(spectrum):
+            logger.warning(
+                "Dark spectrum length (%d) differs from sample (%d), interpolating",
+                len(dark), len(spectrum)
+            )
+            x_dark = np.linspace(0, 1, len(dark))
+            x_sample = np.linspace(0, 1, len(spectrum))
+            dark = np.interp(x_sample, x_dark, dark)
+
+        # Subtract dark and clip to non-negative
+        corrected = spectrum - dark
+        corrected = np.maximum(corrected, 0)  # Clip negative values to 0
+
+        logger.info(
+            "Dark subtracted: original mean=%.1f, corrected mean=%.1f",
+            np.mean(spectrum), np.mean(corrected)
+        )
+
+        return corrected.astype(np.float32)
 
     # ---------------------------------------------------------------------
     # Status and helpers
@@ -307,35 +438,161 @@ class BWTekSpectrometer:
                 logger.exception("Error closing serial connection")
         self._serial_connection = None
 
+    def _save_debug_log(
+        self,
+        raw_data: bytes,
+        parsed_values: Sequence[float],
+        integration_time: int,
+        error: Optional[str] = None,
+    ) -> Optional[Path]:
+        """Save raw scan data to a debug log file for analysis."""
+        if not self.config.debug_logging_enabled or not self.config.debug_log_dir:
+            return None
+
+        try:
+            log_dir = Path(self.config.debug_log_dir)
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            log_file = log_dir / f"scan_{timestamp}.txt"
+
+            with open(log_file, "w") as f:
+                f.write("=" * 80 + "\n")
+                f.write(f"RAMAN SPECTROMETER DEBUG LOG\n")
+                f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+                f.write("=" * 80 + "\n\n")
+
+                # Configuration
+                f.write("--- CONFIGURATION ---\n")
+                f.write(f"Port: {self.config.port}\n")
+                f.write(f"Baudrate: {self.config.baudrate}\n")
+                f.write(f"Integration time: {integration_time} ms\n")
+                f.write(f"Timeout: {self.config.timeout} s\n")
+                f.write(f"Expected data points: {self.config.data_points}\n")
+                f.write(f"Min data points: {self.config.min_data_points}\n")
+                f.write("\n")
+
+                # Error if any
+                if error:
+                    f.write("--- ERROR ---\n")
+                    f.write(f"{error}\n\n")
+
+                # Raw bytes info
+                f.write("--- RAW DATA INFO ---\n")
+                f.write(f"Total bytes received: {len(raw_data)}\n")
+                null_byte = b'\x00'
+                f.write(f"Null bytes count: {raw_data.count(null_byte)}\n")
+                f.write("\n")
+
+                # Raw bytes as hex (first 500 bytes)
+                f.write("--- RAW BYTES (first 500, hex) ---\n")
+                hex_data = raw_data[:500].hex(" ")
+                for i in range(0, len(hex_data), 48):
+                    f.write(f"{hex_data[i:i+48]}\n")
+                f.write("\n")
+
+                # Raw data as string (first 1000 chars)
+                f.write("--- RAW DATA AS STRING (first 1000 chars) ---\n")
+                raw_str = raw_data.decode(errors="replace")[:1000]
+                f.write(f"{raw_str}\n\n")
+
+                # Parsed values
+                f.write("--- PARSED VALUES ---\n")
+                f.write(f"Total parsed values: {len(parsed_values)}\n")
+                if parsed_values:
+                    f.write(f"Min value: {min(parsed_values)}\n")
+                    f.write(f"Max value: {max(parsed_values)}\n")
+                    f.write(f"Mean value: {sum(parsed_values) / len(parsed_values):.3f}\n")
+                    saturation = sum(1 for val in parsed_values if val >= 65535)
+                    f.write(f"Saturated values (>=65535): {saturation}\n")
+                    f.write(f"First 20 values: {parsed_values[:20]}\n")
+                    f.write(f"Last 20 values: {parsed_values[-20:]}\n")
+                f.write("\n")
+
+                # Full parsed data (one value per line for easy plotting)
+                f.write("--- FULL SPECTRUM DATA (one value per line) ---\n")
+                for i, val in enumerate(parsed_values):
+                    f.write(f"{i}\t{val}\n")
+
+            logger.info(f"Debug log saved to: {log_file}")
+            return log_file
+
+        except Exception as exc:
+            logger.warning(f"Failed to save debug log: {exc}")
+            return None
+
     def _read_raw_response(self) -> bytes:
-        """Read raw bytes from the serial port until timeout or terminator."""
+        """Read raw bytes from the serial port until timeout or sufficient data."""
         if not self._serial_connection:
             raise SpectrometerAcquisitionError("Serial connection not initialized")
 
-        terminator = self.config.response_terminator
-        deadline = time.time() + self.config.timeout
+        # Estimate minimum read time based on baudrate and expected frame size.
+        # 5 digits + CRLF ~= 7 bytes per point, 10 bits per byte on the wire.
+        bytes_per_point = 7
+        expected_seconds = (
+            self.config.data_points * bytes_per_point * 10
+        ) / self.config.baudrate
+        deadline = time.time() + max(self.config.timeout, expected_seconds + 2.0)
         buffer = bytearray()
 
+        # Read all available data, not just until first terminator
         while time.time() < deadline:
-            chunk = self._serial_connection.read_until(terminator)
-            if chunk:
-                buffer.extend(chunk)
-                if buffer.endswith(terminator):
-                    break
+            # Check how much data is available
+            available = self._serial_connection.in_waiting
+            if available > 0:
+                chunk = self._serial_connection.read(available)
+                if chunk:
+                    buffer.extend(chunk)
+                    logger.debug(
+                        "Read %d bytes (total buffer: %d bytes)", len(chunk), len(buffer)
+                    )
+                    if self._count_numeric_values(buffer) >= self.config.data_points:
+                        break
             else:
-                break
+                # No data available, wait briefly and keep listening until deadline.
+                time.sleep(0.1)
 
         if not buffer:
             raise SpectrometerAcquisitionError(
                 "No data received from spectrometer before timeout"
             )
 
+        logger.debug(
+            "Total raw data received: %d bytes, first 100 chars: %s",
+            len(buffer),
+            buffer[:100].decode(errors="ignore"),
+        )
+
         return bytes(buffer)
+
+    def _count_numeric_values(self, raw_data: bytes) -> int:
+        """Count numeric spectrum values in the raw buffer."""
+        try:
+            spectrum_str = raw_data.replace(b"\x00", b" ").decode(errors="ignore")
+        except Exception:
+            return 0
+
+        lines = spectrum_str.replace(",", " ").splitlines()
+        skip_patterns = {"ACK", "a", "S"}
+
+        count = 0
+        for line in lines:
+            line = line.strip()
+            if not line or line in skip_patterns or line.startswith("I"):
+                continue
+            if "ACK" in line:
+                continue
+            if not line.isdigit() or len(line) < 4:
+                continue
+            count += 1
+        return count
 
     def _parse_raw_spectrum(self, raw_data: bytes) -> Sequence[float]:
         """Decode and validate raw spectrum data."""
         try:
-            spectrum_str = raw_data.decode(errors="ignore").strip()
+            # Remove null bytes and other control characters before decoding
+            clean_data = raw_data.replace(b"\x00", b" ")
+            spectrum_str = clean_data.decode(errors="ignore").strip()
         except Exception as exc:
             raise SpectrometerAcquisitionError(
                 f"Failed to decode spectrum bytes: {exc}"
@@ -344,32 +601,72 @@ class BWTekSpectrometer:
         if not spectrum_str:
             raise SpectrometerAcquisitionError("Empty response from spectrometer")
 
-        values = spectrum_str.replace(",", " ").split()
-        if len(values) < self.config.min_data_points:
+        logger.debug(
+            "Raw spectrum string length: %d, first 200 chars: %s",
+            len(spectrum_str),
+            spectrum_str[:200],
+        )
+
+        # Split into lines first to handle command echoes properly
+        lines = spectrum_str.replace(",", " ").split("\n")
+        logger.debug(
+            "Parsed %d lines from spectrum, first 5: %s",
+            len(lines),
+            lines[:5],
+        )
+
+        # Filter to only valid numeric values, skipping command echoes and ACKs
+        numeric_values = []
+        skip_patterns = {"ACK", "a", "S"}  # Command echoes to skip
+
+        for line in lines:
+            line = line.strip()
+            # Skip empty lines and command echoes
+            if not line or line in skip_patterns or line.startswith("I"):
+                continue
+            # Skip ACK responses
+            if "ACK" in line:
+                continue
+
+            # Try to parse as a number
+            try:
+                if not line.isdigit() or len(line) < 4:
+                    continue
+                val = float(line)
+                numeric_values.append(val)
+                # Stop once we have enough data points
+                if len(numeric_values) >= self.config.data_points:
+                    break
+            except ValueError:
+                # Skip non-numeric values
+                continue
+
+        logger.debug(
+            "Converted %d numeric values, first 10: %s",
+            len(numeric_values),
+            numeric_values[:10],
+        )
+
+        if len(numeric_values) < self.config.min_data_points:
             raise SpectrometerAcquisitionError(
-                f"Received {len(values)} data points, expected at least "
+                f"Received {len(numeric_values)} valid data points, expected at least "
                 f"{self.config.min_data_points}"
             )
-
-        try:
-            numeric_values = [float(x) for x in values[: self.config.data_points]]
-        except ValueError as exc:
-            sample = values[:10]
-            raise SpectrometerAcquisitionError(
-                f"Invalid spectrum values received (sample={sample}): {exc}"
-            ) from exc
 
         return numeric_values
 
     def _normalize_spectrum(self, values: Sequence[float]) -> np.ndarray:
         """Convert spectrum data to float numpy array."""
         spectrum = np.asarray(values, dtype=np.float32)
-        if spectrum.size < self.config.data_points:
+        # Accept any spectrum that meets minimum requirements
+        # Don't require exactly data_points - real devices vary
+        if spectrum.size < self.config.min_data_points:
             raise SpectrometerAcquisitionError(
-                f"Received {spectrum.size} points, expected {self.config.data_points}"
+                f"Received {spectrum.size} points, expected at least {self.config.min_data_points}"
             )
         if spectrum.size > self.config.data_points:
             spectrum = spectrum[: self.config.data_points]
+        logger.info("Normalized spectrum: %d data points", spectrum.size)
         return spectrum
 
     def _load_simulated_spectrum(self, simulation_file: Optional[str]) -> np.ndarray:

@@ -5,7 +5,13 @@ import type { KeyboardEvent } from 'react'
 import { api } from '@/utils/api'
 import { SpectralChart } from '@/components/SpectralChart'
 import { SpectrumPreview } from '@/components/SpectrumPreview'
-import type { HardwareStatus, AcquisitionResponse, ReferenceSpectrum } from '@/types/spectrum'
+import type {
+  HardwareStatus,
+  AcquisitionResponse,
+  ReferenceSpectrum,
+  CalibrationDetail,
+  CalibrationSummary,
+} from '@/types/spectrum'
 
 interface Port {
   device: string;
@@ -34,7 +40,29 @@ export default function AnalyzePage() {
   const [referenceSpectra, setReferenceSpectra] = useState<ReferenceSpectrum[]>([])
   const [referenceLoading, setReferenceLoading] = useState(false)
   const [referenceError, setReferenceError] = useState<string | null>(null)
-  
+
+  // Dark subtraction state
+  const [hasDark, setHasDark] = useState(false)
+  const [darkInfo, setDarkInfo] = useState<{mean?: number; data_points?: number} | null>(null)
+  const [acquiringDark, setAcquiringDark] = useState(false)
+  const [useDarkSubtraction, setUseDarkSubtraction] = useState(true)
+  const [averageCount, setAverageCount] = useState(1)
+
+  // Calibration state
+  const [instrumentId, setInstrumentId] = useState('default')
+  const [calibrationList, setCalibrationList] = useState<CalibrationSummary[]>([])
+  const [activeCalibration, setActiveCalibration] = useState<CalibrationDetail | null>(null)
+  const [calibrationName, setCalibrationName] = useState('')
+  const [calibrationNotes, setCalibrationNotes] = useState('')
+  const [calibrationLaser, setCalibrationLaser] = useState('')
+  const [selectedCalibrationId, setSelectedCalibrationId] = useState<number | ''>('')
+  const [pixelA, setPixelA] = useState('')
+  const [wavenumberA, setWavenumberA] = useState('')
+  const [pixelB, setPixelB] = useState('')
+  const [wavenumberB, setWavenumberB] = useState('')
+  const [calibrationError, setCalibrationError] = useState<string | null>(null)
+  const [calibrationBusy, setCalibrationBusy] = useState(false)
+
   // Analysis configuration
   const [analysisConfig, setAnalysisConfig] = useState({
     models: {
@@ -67,12 +95,21 @@ export default function AnalyzePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    if (!instrumentId) return
+    void loadCalibrations(instrumentId)
+    void loadActiveCalibration(instrumentId)
+  }, [instrumentId])
+
   const loadHardwareStatus = async () => {
     try {
       const status = await api.getHardwareStatus()
       setHardwareStatus(status)
       if (status.connected) {
         setSimulateMode(Boolean(status.simulate))
+        const inferredId = status.port || selectedPort || 'default'
+        setInstrumentId((prev) => (prev === 'default' ? inferredId : prev))
+        await loadDarkInfo()
       }
     } catch (error) {
       console.error('Failed to load hardware status:', error)
@@ -149,17 +186,171 @@ export default function AnalyzePage() {
     }
   }
 
+  // Dark spectrum handlers
+  const handleAcquireDark = async () => {
+    if (!confirm('Block the laser beam or remove sample, then click OK to acquire dark spectrum.')) {
+      return
+    }
+    setAcquiringDark(true)
+    try {
+      const data = await api.acquireDark({
+        integrationTime,
+        averages: averageCount,
+      })
+      setHasDark(true)
+      setDarkInfo({
+        mean: data.data.reduce((a: number, b: number) => a + b, 0) / data.data.length,
+        data_points: data.data.length
+      })
+      alert('Dark spectrum acquired! Future acquisitions will be corrected.')
+    } catch (error: any) {
+      console.error('Dark acquisition failed:', error)
+      alert('Failed to acquire dark spectrum')
+    } finally {
+      setAcquiringDark(false)
+    }
+  }
+
+  const handleClearDark = async () => {
+    try {
+      await api.clearDark()
+      setHasDark(false)
+      setDarkInfo(null)
+    } catch (error) {
+      console.error('Failed to clear dark:', error)
+    }
+  }
+
+  const loadDarkInfo = async () => {
+    try {
+      const info = await api.getDarkInfo()
+      setHasDark(info.has_dark)
+      if (info.has_dark) {
+        setDarkInfo({ mean: info.mean, data_points: info.data_points })
+      }
+    } catch (error) {
+      console.error('Failed to load dark info:', error)
+    }
+  }
+
+  const loadCalibrations = async (targetInstrumentId: string) => {
+    try {
+      const calibrations = await api.listCalibrations(targetInstrumentId)
+      setCalibrationList(calibrations)
+    } catch (error) {
+      console.error('Failed to load calibrations:', error)
+    }
+  }
+
+  const loadActiveCalibration = async (targetInstrumentId: string) => {
+    try {
+      const calibration = await api.getActiveCalibration(targetInstrumentId)
+      setActiveCalibration(calibration)
+    } catch (error) {
+      setActiveCalibration(null)
+    }
+  }
+
+  const handleActivateCalibration = async (calibrationId: number) => {
+    try {
+      await api.activateCalibration(calibrationId, instrumentId)
+      await loadCalibrations(instrumentId)
+      await loadActiveCalibration(instrumentId)
+    } catch (error) {
+      console.error('Failed to activate calibration:', error)
+      alert('Failed to activate calibration')
+    }
+  }
+
+  const handleCreateCalibration = async () => {
+    const name = calibrationName.trim()
+    if (!name) {
+      setCalibrationError('Enter a calibration name.')
+      return
+    }
+
+    const pixelAValue = Number(pixelA)
+    const pixelBValue = Number(pixelB)
+    const wavenumberAValue = Number(wavenumberA)
+    const wavenumberBValue = Number(wavenumberB)
+    const axisLength = rawSpectrumData.length || hardwareStatus?.data_points || 2048
+
+    if (![pixelAValue, pixelBValue, wavenumberAValue, wavenumberBValue].every(Number.isFinite)) {
+      setCalibrationError('Enter two pixel indices and two wavenumber values.')
+      return
+    }
+    if (pixelAValue === pixelBValue) {
+      setCalibrationError('Pixel indices must be different.')
+      return
+    }
+    if (pixelAValue < 0 || pixelBValue < 0 || pixelAValue >= axisLength || pixelBValue >= axisLength) {
+      setCalibrationError(`Pixel indices must be within 0-${axisLength - 1}.`)
+      return
+    }
+
+    const slope = (wavenumberBValue - wavenumberAValue) / (pixelBValue - pixelAValue)
+    const axisData = Array.from({ length: axisLength }, (_, i) => wavenumberAValue + slope * (i - pixelAValue))
+    const laserValue = calibrationLaser.trim() ? Number(calibrationLaser) : undefined
+
+    if (calibrationLaser.trim() && !Number.isFinite(laserValue)) {
+      setCalibrationError('Laser wavelength must be a number.')
+      return
+    }
+
+    setCalibrationError(null)
+    setCalibrationBusy(true)
+    try {
+      await api.createCalibration({
+        name,
+        instrument_id: instrumentId,
+        axis_data: axisData,
+        laser_wavelength: laserValue,
+        notes: calibrationNotes.trim() || undefined,
+        set_active: true,
+      })
+      setCalibrationName('')
+      setCalibrationNotes('')
+      setCalibrationLaser('')
+      setPixelA('')
+      setPixelB('')
+      setWavenumberA('')
+      setWavenumberB('')
+      await loadCalibrations(instrumentId)
+      await loadActiveCalibration(instrumentId)
+    } catch (error) {
+      console.error('Failed to create calibration:', error)
+      setCalibrationError('Failed to save calibration.')
+    } finally {
+      setCalibrationBusy(false)
+    }
+  }
+
   const handleAcquireSpectrum = async () => {
     setAcquiring(true)
     try {
       setProcessedSpectrumData([])
-      const acquisition = await api.acquireSpectrum({
-        integrationTime,
-        simulate: simulateMode,
-        simulationFile: simulationFile || undefined
-      })
+
+      // Use corrected endpoint if dark subtraction is enabled and dark is available
+      const endpoint = useDarkSubtraction && hasDark ? 'corrected' : 'acquire'
+      const acquisition = await (endpoint === 'corrected'
+        ? api.acquireSpectrumCorrected({
+            integrationTime,
+            simulate: simulateMode,
+            simulationFile: simulationFile || undefined,
+            averages: averageCount,
+          })
+        : api.acquireSpectrum({
+            integrationTime,
+            simulate: simulateMode,
+            simulationFile: simulationFile || undefined,
+            averages: averageCount,
+          }))
+
       setAcquisitionInfo(acquisition)
-      const spectrumArray = acquisition.data
+      const spectrumArray = Array.isArray(acquisition?.data) ? acquisition.data : null
+      if (!spectrumArray) {
+        throw new Error('Failed to read spectrum data from response.')
+      }
 
       // Convert to comma-separated string for display and analysis
       setSpectrumData(spectrumArray.join(', '))
@@ -179,6 +370,9 @@ export default function AnalyzePage() {
   const analyzeSpectrum = async (data: number[]) => {
     setLoading(true)
     try {
+      if (!Array.isArray(data)) {
+        throw new Error('Spectrum data is missing or invalid.')
+      }
       setRawSpectrumData(data)
 
       let processedData = data
@@ -711,12 +905,215 @@ export default function AnalyzePage() {
                       </p>
                     </div>
 
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Averages (scans)
+                      </label>
+                      <input
+                        type="number"
+                        value={averageCount}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value, 10)
+                          setAverageCount(Number.isFinite(value) ? Math.max(1, value) : 1)
+                        }}
+                        min="1"
+                        max="50"
+                        step="1"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Averages reduce noise but increase total acquisition time.
+                      </p>
+                    </div>
+
+                    {/* Dark Subtraction Controls */}
+                    <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-gray-700">Dark Subtraction</span>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={useDarkSubtraction}
+                            onChange={(e) => setUseDarkSubtraction(e.target.checked)}
+                            className="rounded"
+                          />
+                          <span className="text-xs text-gray-600">Enable</span>
+                        </label>
+                      </div>
+                      {hasDark ? (
+                        <div className="text-xs text-green-700 bg-green-50 p-2 rounded mb-2">
+                          Dark captured: {darkInfo?.data_points} pts, mean={darkInfo?.mean?.toFixed(0)}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-yellow-700 bg-yellow-50 p-2 rounded mb-2">
+                          No dark spectrum. Acquire one for better results.
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleAcquireDark}
+                          disabled={acquiringDark}
+                          className="flex-1 px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
+                        >
+                          {acquiringDark ? 'Acquiring...' : 'Acquire Dark'}
+                        </button>
+                        {hasDark && (
+                          <button
+                            onClick={handleClearDark}
+                            className="px-2 py-1 text-xs text-red-600 border border-red-300 rounded hover:bg-red-50"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Calibration Controls */}
+                    <div className="border border-gray-200 rounded-md p-3 bg-gray-50 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-700">Calibration</span>
+                        <button
+                          onClick={() => {
+                            void loadCalibrations(instrumentId)
+                            void loadActiveCalibration(instrumentId)
+                          }}
+                          className="text-xs text-primary-600 hover:text-primary-700"
+                        >
+                          Refresh
+                        </button>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Instrument ID
+                        </label>
+                        <input
+                          type="text"
+                          value={instrumentId}
+                          onChange={(e) => setInstrumentId(e.target.value || 'default')}
+                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary-500"
+                        />
+                        <p className="text-[11px] text-gray-500 mt-1">
+                          Use the serial port or a stable label to separate instruments.
+                        </p>
+                      </div>
+
+                      <div className="text-xs text-gray-700">
+                        Active calibration:{' '}
+                        <span className="font-medium">
+                          {activeCalibration?.name ?? 'None'}
+                        </span>
+                      </div>
+
+                      {calibrationList.length > 0 ? (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={selectedCalibrationId}
+                            onChange={(e) =>
+                              setSelectedCalibrationId(
+                                e.target.value ? Number(e.target.value) : ''
+                              )
+                            }
+                            className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
+                          >
+                            <option value="">Select calibration…</option>
+                            {calibrationList.map((calibration) => (
+                              <option key={calibration.id} value={calibration.id}>
+                                {calibration.name}
+                                {calibration.active ? ' (active)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => {
+                              if (selectedCalibrationId) {
+                                void handleActivateCalibration(Number(selectedCalibrationId))
+                              }
+                            }}
+                            className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-100"
+                          >
+                            Activate
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-500">
+                          No saved calibrations yet.
+                        </div>
+                      )}
+
+                      <div className="border-t border-gray-200 pt-3 space-y-2">
+                        <div className="text-xs font-medium text-gray-700">
+                          Create calibration (two-point)
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            value={calibrationName}
+                            onChange={(e) => setCalibrationName(e.target.value)}
+                            placeholder="Calibration name"
+                            className="col-span-2 px-2 py-1 text-xs border border-gray-300 rounded"
+                          />
+                          <input
+                            type="number"
+                            value={pixelA}
+                            onChange={(e) => setPixelA(e.target.value)}
+                            placeholder="Pixel A (0-based)"
+                            className="px-2 py-1 text-xs border border-gray-300 rounded"
+                          />
+                          <input
+                            type="number"
+                            value={wavenumberA}
+                            onChange={(e) => setWavenumberA(e.target.value)}
+                            placeholder="Shift A (cm⁻¹)"
+                            className="px-2 py-1 text-xs border border-gray-300 rounded"
+                          />
+                          <input
+                            type="number"
+                            value={pixelB}
+                            onChange={(e) => setPixelB(e.target.value)}
+                            placeholder="Pixel B (0-based)"
+                            className="px-2 py-1 text-xs border border-gray-300 rounded"
+                          />
+                          <input
+                            type="number"
+                            value={wavenumberB}
+                            onChange={(e) => setWavenumberB(e.target.value)}
+                            placeholder="Shift B (cm⁻¹)"
+                            className="px-2 py-1 text-xs border border-gray-300 rounded"
+                          />
+                          <input
+                            type="number"
+                            value={calibrationLaser}
+                            onChange={(e) => setCalibrationLaser(e.target.value)}
+                            placeholder="Laser nm (optional)"
+                            className="px-2 py-1 text-xs border border-gray-300 rounded"
+                          />
+                          <input
+                            type="text"
+                            value={calibrationNotes}
+                            onChange={(e) => setCalibrationNotes(e.target.value)}
+                            placeholder="Notes (optional)"
+                            className="px-2 py-1 text-xs border border-gray-300 rounded col-span-2"
+                          />
+                        </div>
+                        {calibrationError && (
+                          <div className="text-[11px] text-red-600">{calibrationError}</div>
+                        )}
+                        <button
+                          onClick={handleCreateCalibration}
+                          disabled={calibrationBusy}
+                          className="w-full px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
+                        >
+                          {calibrationBusy ? 'Saving...' : 'Save Calibration'}
+                        </button>
+                      </div>
+                    </div>
+
                     <button
                       onClick={handleAcquireSpectrum}
                       disabled={acquiring || loading}
                       className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {acquiring ? '🔬 Acquiring Spectrum...' : '🔬 Acquire & Analyze'}
+                      {acquiring ? '🔬 Acquiring Spectrum...' : hasDark && useDarkSubtraction ? '🔬 Acquire & Analyze (Dark Corrected)' : '🔬 Acquire & Analyze'}
                     </button>
 
                     <button
@@ -732,14 +1129,20 @@ export default function AnalyzePage() {
                 {acquisitionInfo && (
                   <div
                     className={`border rounded-md p-3 text-sm ${
-                      acquisitionInfo.source === 'hardware'
+                      acquisitionInfo.source === 'hardware' || acquisitionInfo.source === 'hardware_corrected'
                         ? 'border-green-200 bg-green-50'
                         : 'border-blue-200 bg-blue-50'
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-medium">
-                        {acquisitionInfo.source === 'hardware' ? 'Hardware spectrum' : 'Simulator spectrum'}
+                        {acquisitionInfo.source === 'hardware'
+                          ? 'Hardware spectrum'
+                          : acquisitionInfo.source === 'hardware_corrected'
+                            ? 'Dark-corrected spectrum'
+                            : acquisitionInfo.source === 'dark'
+                              ? 'Dark spectrum'
+                              : 'Simulator spectrum'}
                       </span>
                       <span className="text-xs text-gray-600">
                         Captured {formatTimestamp(acquisitionInfo.acquired_at)}
@@ -747,7 +1150,12 @@ export default function AnalyzePage() {
                     </div>
                     <div className="mt-2 text-xs text-gray-700 space-y-1">
                       <div>Integration: {acquisitionInfo.integration_time} ms</div>
-                      {acquisitionInfo.source === 'hardware' && acquisitionInfo.port && (
+                      {acquisitionInfo.average_count && acquisitionInfo.average_count > 1 && (
+                        <div>Averages: {acquisitionInfo.average_count}</div>
+                      )}
+                      {(acquisitionInfo.source === 'hardware' ||
+                        acquisitionInfo.source === 'hardware_corrected') &&
+                        acquisitionInfo.port && (
                         <div>Port: {acquisitionInfo.port}</div>
                       )}
                       {acquisitionInfo.source === 'simulator' && acquisitionInfo.simulation_file && (
@@ -757,7 +1165,7 @@ export default function AnalyzePage() {
                   </div>
                 )}
 
-                {rawSpectrumData.length > 0 && (
+                {Array.isArray(rawSpectrumData) && rawSpectrumData.length > 0 && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Acquired Spectrum (first 10 points)
@@ -818,6 +1226,7 @@ export default function AnalyzePage() {
                     <h4 className="font-medium text-gray-900 mb-4">Raw Spectrum</h4>
                     <SpectralChart
                       spectrumData={rawSpectrumData}
+                      xAxisData={activeCalibration?.axis_data}
                       compoundName={acquisitionInfo?.source === 'simulator' ? 'Simulator Capture' : 'Hardware Capture'}
                       showPeaks={false}
                       height={320}
@@ -839,6 +1248,7 @@ export default function AnalyzePage() {
                     </h4>
                     <SpectralChart
                       spectrumData={processedSpectrumData}
+                      xAxisData={activeCalibration?.axis_data}
                       compoundName={result.predicted_compound}
                       showPeaks={true}
                       height={400}
