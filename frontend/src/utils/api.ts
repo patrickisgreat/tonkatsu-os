@@ -13,6 +13,8 @@ import {
   HardwareStatus,
   TrainingStatus,
   ReferenceSpectrum,
+  CalibrationSummary,
+  CalibrationDetail,
 } from '@/types/spectrum'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -181,12 +183,45 @@ export const api = {
     integrationTime?: number
     simulate?: boolean
     simulationFile?: string
+    averages?: number
   }): Promise<AcquisitionResponse> {
     return apiClient.post('/acquisition/acquire', {
-      integration_time: options?.integrationTime ?? 2000,
+      integration_time: options?.integrationTime ?? 200,
       simulate: options?.simulate ?? false,
       simulation_file: options?.simulationFile ?? null,
+      averages: options?.averages ?? 1,
     })
+  },
+
+  async acquireSpectrumCorrected(options?: {
+    integrationTime?: number
+    simulate?: boolean
+    simulationFile?: string
+    averages?: number
+  }): Promise<AcquisitionResponse> {
+    return apiClient.post('/acquisition/acquire/corrected', {
+      integration_time: options?.integrationTime ?? 200,
+      simulate: options?.simulate ?? false,
+      simulation_file: options?.simulationFile ?? null,
+      averages: options?.averages ?? 1,
+    })
+  },
+
+  async acquireDark(options?: { integrationTime?: number; averages?: number }): Promise<AcquisitionResponse> {
+    return apiClient.post('/acquisition/dark/acquire', null, {
+      params: {
+        integration_time: options?.integrationTime ?? 200,
+        averages: options?.averages ?? 1,
+      },
+    })
+  },
+
+  async clearDark(): Promise<ApiResponse<any>> {
+    return apiClient.post('/acquisition/dark/clear')
+  },
+
+  async getDarkInfo(): Promise<{ has_dark: boolean; mean?: number; data_points?: number; integration_time?: number }> {
+    return apiClient.get('/acquisition/dark/info')
   },
 
   async getHardwareStatus(): Promise<HardwareStatus> {
@@ -218,6 +253,36 @@ export const api = {
     hwid: string;
   }>> {
     return apiClient.get('/acquisition/ports')
+  },
+
+  // Calibration operations
+  async createCalibration(payload: {
+    name: string
+    instrument_id: string
+    axis_data: number[]
+    laser_wavelength?: number
+    notes?: string
+    set_active?: boolean
+  }): Promise<CalibrationDetail> {
+    return apiClient.post('/calibration/create', payload)
+  },
+
+  async listCalibrations(instrumentId?: string): Promise<CalibrationSummary[]> {
+    return apiClient.get('/calibration/list', {
+      params: instrumentId ? { instrument_id: instrumentId } : undefined,
+    })
+  },
+
+  async getActiveCalibration(instrumentId: string): Promise<CalibrationDetail> {
+    return apiClient.get('/calibration/active', {
+      params: { instrument_id: instrumentId },
+    })
+  },
+
+  async activateCalibration(calibrationId: number, instrumentId: string): Promise<ApiResponse<any>> {
+    return apiClient.post(`/calibration/activate/${calibrationId}`, null, {
+      params: { instrument_id: instrumentId },
+    })
   },
 
   async laserOn(): Promise<ApiResponse<any>> {

@@ -22,6 +22,7 @@ const Plot = dynamic(
 
 interface SpectralChartProps {
   spectrumData: number[]
+  xAxisData?: number[]
   compoundName?: string
   wavelengthRange?: [number, number]
   showPeaks?: boolean
@@ -32,6 +33,7 @@ interface SpectralChartProps {
 
 export const SpectralChart: React.FC<SpectralChartProps> = ({
   spectrumData,
+  xAxisData,
   compoundName = 'Unknown Compound',
   wavelengthRange = [400, 4000],
   showPeaks = false,
@@ -66,12 +68,15 @@ export const SpectralChart: React.FC<SpectralChartProps> = ({
       .slice(0, 10)
   }
 
-  const xAxisData = generateXAxis(spectrumData.length, wavelengthRange)
+  const resolvedXAxis =
+    xAxisData && xAxisData.length === spectrumData.length
+      ? xAxisData
+      : generateXAxis(spectrumData.length, wavelengthRange)
   const peaks = showPeaks ? findPeaks(spectrumData) : []
 
   // Plotly trace for main spectrum
   const spectrumTrace: Data = {
-    x: xAxisData,
+    x: resolvedXAxis,
     y: spectrumData,
     type: 'scatter',
     mode: 'lines',
@@ -87,7 +92,7 @@ export const SpectralChart: React.FC<SpectralChartProps> = ({
 
   // Plotly trace for peaks
   const peaksTrace: Data = {
-    x: peaks.map(i => xAxisData[i]),
+    x: peaks.map(i => resolvedXAxis[i]),
     y: peaks.map(i => spectrumData[i]),
     type: 'scatter',
     mode: 'markers',
@@ -230,7 +235,7 @@ export const SpectralChart: React.FC<SpectralChartProps> = ({
             {peaks.slice(0, 10).map((peakIdx, index) => (
               <div key={index} className="bg-red-50 border border-red-200 p-2 rounded text-center">
                 <div className="font-medium text-red-800">
-                  {xAxisData[peakIdx].toFixed(0)} cm⁻¹
+                  {resolvedXAxis[peakIdx].toFixed(0)} cm⁻¹
                 </div>
                 <div className="text-red-600 text-xs">
                   {spectrumData[peakIdx].toFixed(3)}
