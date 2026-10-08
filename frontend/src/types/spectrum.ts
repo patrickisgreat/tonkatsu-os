@@ -159,11 +159,26 @@ export interface HardwareStatus {
 
 export interface AcquisitionResponse {
   data: number[];
-  source: 'hardware' | 'simulator';
+  source: 'hardware' | 'simulator' | 'dark' | 'hardware_corrected';
   integration_time: number;
   acquired_at: string;
   port?: string | null;
   simulation_file?: string | null;
+  average_count?: number | null;
+}
+
+export interface CalibrationSummary {
+  id: number;
+  name: string;
+  instrument_id: string;
+  laser_wavelength?: number | null;
+  notes?: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export interface CalibrationDetail extends CalibrationSummary {
+  axis_data: number[];
 }
 
 export interface ReferenceSpectrum {

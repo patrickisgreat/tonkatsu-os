@@ -20,6 +20,47 @@ if ! command -v node &> /dev/null; then
     exit 1
 fi
 
+# Setup serial port permissions for spectrometer
+echo "🔌 Checking serial port permissions..."
+SERIAL_PORT="/dev/ttyUSB0"
+if [ -e "$SERIAL_PORT" ]; then
+    # Check if another process is using the port
+    PORT_PID=$(lsof -t "$SERIAL_PORT" 2>/dev/null || true)
+    if [ -n "$PORT_PID" ]; then
+        echo "⚠️  Serial port $SERIAL_PORT is in use by PID $PORT_PID"
+        echo "   Killing stale process..."
+        kill $PORT_PID 2>/dev/null || true
+        sleep 1
+        echo "✅ Stale process killed"
+    fi
+
+    if [ ! -r "$SERIAL_PORT" ] || [ ! -w "$SERIAL_PORT" ]; then
+        echo "⚠️  Serial port $SERIAL_PORT needs permissions"
+        echo "   Running: sudo chmod 666 $SERIAL_PORT"
+        sudo chmod 666 "$SERIAL_PORT"
+        if [ $? -eq 0 ]; then
+            echo "✅ Serial port permissions set"
+        else
+            echo "⚠️  Could not set permissions. You may need to run manually:"
+            echo "   sudo chmod 666 $SERIAL_PORT"
+            echo "   Or add yourself to dialout group: sudo usermod -aG dialout \$USER"
+        fi
+    else
+        echo "✅ Serial port $SERIAL_PORT is accessible"
+    fi
+else
+    echo "ℹ️  Serial port $SERIAL_PORT not found (spectrometer not connected?)"
+fi
+
+# Also check ttyACM0 as alternative
+ALT_PORT="/dev/ttyACM0"
+if [ -e "$ALT_PORT" ]; then
+    if [ ! -r "$ALT_PORT" ] || [ ! -w "$ALT_PORT" ]; then
+        echo "⚠️  Serial port $ALT_PORT needs permissions"
+        sudo chmod 666 "$ALT_PORT" 2>/dev/null || true
+    fi
+fi
+
 # Install Python dependencies
 echo "📦 Installing Python dependencies..."
 poetry install

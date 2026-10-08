@@ -96,6 +96,29 @@ class RamanSpectralDatabase:
         """
         )
 
+        # Calibration table for instrument-specific axis mapping
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calibrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                instrument_id TEXT NOT NULL,
+                laser_wavelength REAL,
+                axis_data BLOB NOT NULL,
+                notes TEXT,
+                active INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+
+        self.conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_calibrations_instrument
+            ON calibrations(instrument_id)
+        """
+        )
+
         self.conn.commit()
         logger.info(f"Database initialized at {self.db_path}")
 
@@ -555,6 +578,137 @@ class RamanSpectralDatabase:
             self.conn.commit()
             logger.info("Removed %s duplicate spectra", len(removed_ids))
         return removed_ids
+
+    def add_calibration(
+        self,
+        name: str,
+        instrument_id: str,
+        axis_data: np.ndarray,
+        laser_wavelength: Optional[float] = None,
+        notes: Optional[str] = None,
+        set_active: bool = True,
+    ) -> int:
+        """Store a calibration axis for a given instrument."""
+        axis_array = np.asarray(axis_data, dtype=float)
+        if axis_array.ndim != 1:
+            raise ValueError("Calibration axis_data must be a 1D array")
+
+        if set_active:
+            self.conn.execute(
+                "UPDATE calibrations SET active = 0 WHERE instrument_id = ?",
+                (instrument_id,),
+            )
+
+        cursor = self.conn.execute(
+            """
+            INSERT INTO calibrations (
+                name, instrument_id, laser_wavelength, axis_data, notes, active
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+            (
+                name,
+                instrument_id,
+                laser_wavelength,
+                pickle.dumps(axis_array),
+                notes,
+                1 if set_active else 0,
+            ),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def list_calibrations(self, instrument_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List stored calibrations."""
+        if instrument_id:
+            rows = self.conn.execute(
+                """
+                SELECT id, name, instrument_id, laser_wavelength, notes, active, created_at
+                FROM calibrations
+                WHERE instrument_id = ?
+                ORDER BY created_at DESC
+            """,
+                (instrument_id,),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT id, name, instrument_id, laser_wavelength, notes, active, created_at
+                FROM calibrations
+                ORDER BY created_at DESC
+            """
+            ).fetchall()
+
+        keys = ["id", "name", "instrument_id", "laser_wavelength", "notes", "active", "created_at"]
+        return [dict(zip(keys, row)) for row in rows]
+
+    def get_calibration(self, calibration_id: int) -> Optional[Dict[str, Any]]:
+        """Fetch a calibration including axis data."""
+        row = self.conn.execute(
+            """
+            SELECT id, name, instrument_id, laser_wavelength, axis_data, notes, active, created_at
+            FROM calibrations
+            WHERE id = ?
+        """,
+            (calibration_id,),
+        ).fetchone()
+        if not row:
+            return None
+
+        keys = [
+            "id",
+            "name",
+            "instrument_id",
+            "laser_wavelength",
+            "axis_data",
+            "notes",
+            "active",
+            "created_at",
+        ]
+        calibration = dict(zip(keys, row))
+        calibration["axis_data"] = pickle.loads(calibration["axis_data"]).tolist()
+        return calibration
+
+    def get_active_calibration(self, instrument_id: str) -> Optional[Dict[str, Any]]:
+        """Return the active calibration for an instrument."""
+        row = self.conn.execute(
+            """
+            SELECT id, name, instrument_id, laser_wavelength, axis_data, notes, active, created_at
+            FROM calibrations
+            WHERE instrument_id = ? AND active = 1
+            ORDER BY created_at DESC
+            LIMIT 1
+        """,
+            (instrument_id,),
+        ).fetchone()
+        if not row:
+            return None
+
+        keys = [
+            "id",
+            "name",
+            "instrument_id",
+            "laser_wavelength",
+            "axis_data",
+            "notes",
+            "active",
+            "created_at",
+        ]
+        calibration = dict(zip(keys, row))
+        calibration["axis_data"] = pickle.loads(calibration["axis_data"]).tolist()
+        return calibration
+
+    def set_active_calibration(self, calibration_id: int, instrument_id: str) -> bool:
+        """Mark a calibration as active for an instrument."""
+        self.conn.execute(
+            "UPDATE calibrations SET active = 0 WHERE instrument_id = ?",
+            (instrument_id,),
+        )
+        cursor = self.conn.execute(
+            "UPDATE calibrations SET active = 1 WHERE id = ?",
+            (calibration_id,),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
 
     def close(self):
         """Close database connection."""
